@@ -277,6 +277,15 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
 .done-wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding-block: 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 .done-card { max-width: 460px; width: 100%; padding: 32px; text-align: center; display: flex; flex-direction: column; gap: 12px; align-items: center; }
 .done-ico { width: 48px; height: 48px; border-radius: 50%; background: var(--ok-soft); color: var(--ok); display: flex; align-items: center; justify-content: center; }
+/* Wayfinding marks */
+.lg { width: 14px; height: 14px; flex: none; vertical-align: -2px; }
+.lg-atem { color: var(--muted); } .lg-vimeo { fill: #1AB7EA; } .lg-webflow { fill: #146EF5; }
+.btn.primary .lg { fill: currentColor; }
+.inl { white-space: nowrap; }
+.inl > .lg { margin-right: 4px; }
+.card-h { display: flex; align-items: center; gap: 8px; }
+.card-h svg.i { color: var(--muted); }
+.cont-ico { width: 36px; height: 36px; border-radius: 9px; background: var(--sunken); color: var(--ink-2); display: inline-flex; align-items: center; justify-content: center; flex: none; }
 .gbtn { min-height: 44px; display: flex; justify-content: center; margin-top: 6px; }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -293,6 +302,14 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
 </style>
 </head>
 <body>
+<!-- Service marks used only to show where things go (Vimeo and Webflow paths from Simple Icons, CC0) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="lg-zoom" viewBox="0 0 24 24"><rect width="24" height="24" rx="6" fill="#0B5CFF"></rect><rect x="4.5" y="8" width="10" height="8" rx="2" fill="#fff"></rect><path d="M15.5 11.2 19.5 9v6l-4-2.2z" fill="#fff"></path></symbol>
+  <symbol id="lg-atem" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1.75" y="4" width="9" height="8" rx="2"></rect><path d="m10.75 7 3.5-2v6l-3.5-2"></path></g></symbol>
+  <symbol id="lg-vimeo" viewBox="0 0 24 24"><path d="M23.9765 6.4168c-.105 2.338-1.739 5.5429-4.894 9.6088-3.2679 4.247-6.0258 6.3699-8.2898 6.3699-1.409 0-2.578-1.294-3.553-3.881l-1.9179-7.1138c-.719-2.584-1.488-3.878-2.312-3.878-.179 0-.806.378-1.8809 1.132l-1.129-1.457a315.06 315.06 0 003.501-3.1279c1.579-1.368 2.765-2.085 3.5539-2.159 1.867-.18 3.016 1.1 3.447 3.838.465 2.953.789 4.789.971 5.5069.5389 2.45 1.1309 3.674 1.7759 3.674.502 0 1.256-.796 2.265-2.385 1.004-1.589 1.54-2.797 1.612-3.628.144-1.371-.395-2.061-1.614-2.061-.574 0-1.167.121-1.777.391 1.186-3.8679 3.434-5.7568 6.7619-5.6368 2.4729.06 3.6279 1.664 3.4929 4.7969z"></path></symbol>
+  <symbol id="lg-webflow" viewBox="0 0 24 24"><path d="m24 4.515-7.658 14.97H9.149l3.205-6.204h-.144C9.566 16.713 5.621 18.973 0 19.485v-6.118s3.596-.213 5.71-2.435H0V4.515h6.417v5.278l.144-.001 2.622-5.277h4.854v5.244h.144l2.72-5.244H24Z"></path></symbol>
+  <symbol id="lg-drive" viewBox="0 0 87.3 78"><path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/><path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47"/><path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/><path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/><path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/><path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/></symbol>
+</svg>
 <div class="app" id="app">
 
   <!-- 0 · Sign in -->
@@ -325,13 +342,13 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
       <div class="drop" id="drop">
         <div class="up"><svg class="i" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 13.5V4M6 8l4-4 4 4M4 16h12"></path></svg></div>
         <span class="t" id="dropTitle">Drop the recording here</span>
-        <span class="muted" id="dropSub">MP4 or MOV from Zoom or the ATEM, plus any notes. <button class="link" id="chooseBtn">Choose files</button></span>
+        <span class="muted" id="dropSub">MP4 or MOV from <span class="inl"><svg class="lg lg-zoom" aria-hidden="true"><use href="#lg-zoom"></use></svg>Zoom</span> or the <span class="inl"><svg class="lg lg-atem" aria-hidden="true"><use href="#lg-atem"></use></svg>ATEM</span>, plus any notes. <button class="link" id="chooseBtn">Choose files</button></span>
         <span class="err" id="dropErr" hidden></span>
         <input type="file" id="fileIn" multiple accept="video/*,.mov,.mp4,.m4v,.pdf,.doc,.docx,.ppt,.pptx,.key,.pages,.txt,.png,.jpg,.jpeg" hidden>
         <button class="btn" id="demoBtn" style="margin-top: 10px;">Try with a sample recording</button>
       </div>
       <div id="continueList" style="display: flex; flex-direction: column; gap: 12px;"></div>
-      <p class="fine" style="text-align: center;">Recordings are saved to the SENT Life Center Google Drive. Nothing goes on the website until someone publishes it.</p>
+      <p class="fine" style="text-align: center; text-wrap: balance;"><span class="inl"><svg class="lg" aria-hidden="true"><use href="#lg-drive"></use></svg>Recordings are saved to the SENT Life Center Google Drive.</span> <span class="inl"><svg class="lg lg-webflow" aria-hidden="true"><use href="#lg-webflow"></use></svg>Nothing goes on the website until someone publishes it.</span></p>
     </div>
   </section>
 
@@ -546,7 +563,7 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
         <span class="pill" id="revPill"></span>
       </div>
       <div class="tb-right">
-        <button class="btn primary" id="publishBtn" disabled>Publish to Webflow</button>
+        <button class="btn primary" id="publishBtn" disabled><svg class="lg" aria-hidden="true"><use href="#lg-webflow"></use></svg>Publish to Webflow</button>
       </div>
     </header>
     <div class="banner" id="revBanner" hidden></div>
@@ -566,22 +583,22 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
         </div>
         <p class="fine">This is the final edit. Removed sections are skipped.</p>
         <div class="card side-card">
-          <div style="display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap;"><span>What was cut</span><button class="link" id="openEditor">Return to editor</button></div>
+          <div style="display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap;"><span class="card-h"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="4.5" cy="4.5" r="2"></circle><circle cx="4.5" cy="11.5" r="2"></circle><path d="M6.2 5.6 13.5 12M6.2 10.4 13.5 4"></path></svg>What was cut</span><button class="link" id="openEditor">Return to editor</button></div>
           <div id="rvCuts"></div>
         </div>
       </div>
       <div class="rv-side">
         <div class="card side-card">
-          <span class="muted" style="font-size: 12px;" id="rvColl"></span>
+          <span class="muted card-h" style="font-size: 12px; gap: 6px;"><svg class="lg lg-webflow" aria-hidden="true"><use href="#lg-webflow"></use></svg><span id="rvColl"></span></span>
           <h2 style="font-size: 18px; letter-spacing: -0.015em; line-height: 1.3;" id="rvName"></h2>
           <div id="rvRows"></div>
         </div>
         <div class="card side-card">
-          <span style="font-size: 13px;">Saved to Google Drive</span>
+          <span class="card-h" style="font-size: 13px;"><svg class="lg" aria-hidden="true"><use href="#lg-drive"></use></svg>Saved to Google Drive</span>
           <div class="tree" id="driveTree"></div>
         </div>
         <div class="card side-card">
-          <span style="font-size: 13px;">Ready to publish</span>
+          <span class="card-h" style="font-size: 13px;"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.5 4 6l2.5-2.5M2.5 10.5 4 12l2.5-2.5M8.5 5h5M8.5 11h5"></path></svg>Ready to publish</span>
           <div id="rvChecks" style="display: flex; flex-direction: column; gap: 8px;"></div>
         </div>
       </div>

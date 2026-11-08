@@ -389,7 +389,8 @@
     });
   }
   function card(id, t, sub) {
-    return '<div class="card continue"><div style="min-width: 0;"><div>' + esc(t) + '</div><div class="muted" style="font-size: 13px;">' + esc(sub) + '</div></div><button class="btn primary" data-cont="' + esc(id) + '">Continue</button></div>';
+    var ico = '<span class="cont-ico" aria-hidden="true"><svg class="i" viewBox="0 0 16 16"><rect x="1.75" y="3.5" width="9" height="9" rx="2"></rect><path d="m10.75 7 3.5-2v6l-3.5-2"></path></svg></span>';
+    return '<div class="card continue"><div style="display: flex; align-items: center; gap: 12px; min-width: 0;">' + ico + '<div style="min-width: 0;"><div>' + esc(t) + '</div><div class="muted" style="font-size: 13px;">' + esc(sub) + '</div></div></div><button class="btn primary" data-cont="' + esc(id) + '">Continue</button></div>';
   }
   function refreshList() {
     if (!S.user) return;
