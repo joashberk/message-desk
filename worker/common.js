@@ -95,9 +95,10 @@ export function probe(file) {
 }
 
 // Runs ffmpeg and reports progress as seconds of output written.
-export function ffmpeg(args, onSeconds) {
+export function ffmpeg(args, onSeconds, signal) {
   return new Promise((resolve, reject) => {
-    const p = spawn('ffmpeg', ['-progress', 'pipe:1', '-nostats', '-loglevel', 'error', ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const p = spawn('ffmpeg', ['-progress', 'pipe:1', '-nostats', '-loglevel', 'error', ...args], { stdio: ['ignore', 'pipe', 'pipe'], signal });
+    p.on('error', (e) => reject(e));
     let err = '';
     let buf = '';
     p.stdout.on('data', (d) => {

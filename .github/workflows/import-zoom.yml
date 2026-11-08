@@ -29,16 +29,18 @@ jobs:
       ZOOM_ACCOUNT_ID: ${{ secrets.ZOOM_ACCOUNT_ID }}
       ZOOM_CLIENT_ID: ${{ secrets.ZOOM_CLIENT_ID }}
       ZOOM_CLIENT_SECRET: ${{ secrets.ZOOM_CLIENT_SECRET }}
-      WORK_DIR: ${{ runner.temp }}/md
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - name: Make room for large recordings (in the background)
-        run: nohup sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost > /dev/null 2>&1 &
+        run: |
+          nohup sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost > /dev/null 2>&1 &
       - name: Copy the recording from Zoom to Drive
         id: import
+        env:
+          WORK_DIR: ${{ runner.temp }}/md
         run: node worker/import-zoom.js "${{ inputs.meeting_uuid }}" "${{ inputs.file_id }}"
       - name: Install ffmpeg
         if: steps.import.outputs.message_id != ''
@@ -47,4 +49,5 @@ jobs:
         if: steps.import.outputs.message_id != ''
         env:
           LOCAL_ORIGINAL: ${{ steps.import.outputs.local }}
+          WORK_DIR: ${{ runner.temp }}/md
         run: node worker/prepare.js "${{ steps.import.outputs.message_id }}"

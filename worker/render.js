@@ -20,9 +20,24 @@ let m, state, save;
 
 // Stops quietly if someone pressed Push to Render again in the meantime.
 async function stillCurrent() {
-  const fresh = await M.load(id);
+  let fresh;
+  try { fresh = await M.load(id); } catch (e) {
+    if (e.status === 404) { log('the post was discarded; stopping'); process.exit(0); }
+    throw e;
+  }
   if (fresh.edit.renderRequestId !== requestId) { log('a newer render was requested; stopping'); process.exit(0); }
   return fresh;
+}
+
+// Checks once a minute during the long compression step, so a discarded or re-pushed post stops right away.
+function watchForStop(ac) {
+  const t = setInterval(async () => {
+    try {
+      const fresh = await M.load(id);
+      if (fresh.edit.renderRequestId !== requestId) { log('a newer render was requested; stopping'); ac.abort(); }
+    } catch (e) { if (e.status === 404) { log('the post was discarded; stopping'); ac.abort(); } }
+  }, 60000);
+  return () => clearInterval(t);
 }
 
 async function tusUpload(link, file, onProgress) {
@@ -74,7 +89,11 @@ async function main() {
   const outMp4 = path.join(work, 'final.mp4'), outMp3 = path.join(work, 'final.mp3');
   const { args, kept, ranges } = buildRenderArgs({ input: src, outMp4, outMp3, segs: e.renderSegs, dur: info.duration, fps: info.fps, hasAudio: info.hasAudio });
   log('keeping', ranges.length, 'sections,', kept.toFixed(2), 's');
-  await ffmpeg(args, (s) => { state.pct = 10 + Math.floor(Math.min(1, s / kept) * 40); save(); });
+  const ac = new AbortController();
+  const stopWatching = watchForStop(ac);
+  try {
+    await ffmpeg(args, (s) => { state.pct = 10 + Math.floor(Math.min(1, s / kept) * 40); save(); }, ac.signal);
+  } catch (e) { if (ac.signal.aborted) process.exit(0); throw e; } finally { stopWatching(); }
   fs.unlinkSync(src);
   if (!info.hasAudio) throw new Error('The recording has no sound, so no audio file could be made');
   state.duration = kept;

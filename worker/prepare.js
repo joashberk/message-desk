@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import * as G from '../lib/google.js';
 import * as M from '../lib/messages.js';
+import { rateExpr } from '../lib/cut.js';
 import { downloadToFile, uploadFromFile, probe, ffmpeg, throttled, log, freeDisk } from './common.js';
 
 const id = process.argv[2] || process.env.MESSAGE_ID;
@@ -31,11 +32,11 @@ async function main() {
   Object.assign(state, { fps: info.fps, duration: info.duration, width: info.width, height: info.height, pct: 40 });
   await save(true);
 
-  // Preview copy: 540p, small, a keyframe every second for snappy scrubbing, same frame timing as the original
   const proxy = path.join(work, 'preview.mp4');
-  const g = String(Math.max(1, Math.round(info.fps)));
-  const args = ['-y', '-i', src, '-map', '0:v:0', '-vf', "scale=-2:'min(540,ih)',format=yuv420p",
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '30', '-g', g, '-keyint_min', g, '-sc_threshold', '0'];
+  // Preview only: 540p, at most 30 fps, quickest settings. Frame timing still lines up with the original.
+  const pfps = info.fps > 31 ? info.fps / 2 : info.fps;
+  const pg = String(Math.max(1, Math.round(pfps)));
+  const args = ['-y', '-threads', '0', '-i', src, '-map', '0:v:0', '-vf', (pfps !== info.fps ? 'fps=' + rateExpr(pfps) + ',' : '') + "scale=-2:'min(540,ih)':flags=fast_bilinear,format=yuv420p", '-c:v', 'libx264', '-preset', 'superfast', '-crf', '30', '-g', pg, '-keyint_min', pg, '-sc_threshold', '0'];
   if (info.hasAudio) args.push('-map', '0:a:0', '-c:a', 'aac', '-b:a', '64k', '-ac', '1');
   args.push('-movflags', '+faststart', proxy);
   await ffmpeg(args, (s) => { state.pct = 40 + Math.floor(Math.min(1, s / info.duration) * 45); save(); });

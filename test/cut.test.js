@@ -85,3 +85,17 @@ test('29.97 fps footage whose timestamps start late', { skip: !hasFfmpeg }, () =
   execFileSync('ffmpeg', ['-v', 'error', ...args]);
   assert.deepEqual(probeFrames(outMp4), [...Array(12).keys()].map((i) => 5 + i));
 });
+
+test('60 fps footage comes out at 30 fps, still cut on exact frames', { skip: !hasFfmpeg }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdcut-'));
+  const src = path.join(dir, 'src.mp4');
+  execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=black:s=128x72:r=60:d=1,geq=lum=mod(N*4\\,256):cb=128:cr=128',
+    '-f', 'lavfi', '-i', 'sine=d=1', '-c:v', 'libx264', '-qp', '0', '-pix_fmt', 'yuv444p', '-shortest', src]);
+  const segs = [{ a: 0, b: 10 / 60, t: 'remove' }, { a: 10 / 60, b: 30 / 60, t: 'keep' }, { a: 30 / 60, b: 1, t: 'remove' }];
+  const outMp4 = path.join(dir, 'o.mp4');
+  const { args } = buildRenderArgs({ input: src, outMp4, outMp3: path.join(dir, 'o.mp3'), segs, dur: 1, fps: 60 });
+  execFileSync('ffmpeg', ['-v', 'error', ...args]);
+  const frames = probeFrames(outMp4);
+  assert.equal(frames.length, 10, '20 source frames at 60 fps become 10 at 30 fps');
+  assert.ok(frames[0] >= 10 && frames[0] <= 11 && frames[9] >= 28 && frames[9] <= 29, 'nothing from the removed parts: ' + frames.join(','));
+});
