@@ -70,7 +70,7 @@
     requestAnimationFrame(function () { requestAnimationFrame(function () { app.classList.remove("no-motion"); }); });
   }
   $$("#themeCtl button").forEach(function (b) { b.addEventListener("click", function () { applyTheme(b.dataset.themeOpt); }); });
-  applyTheme(lsGet("theme", "system"));
+  applyTheme(lsGet("theme", "light")); // white by default; people can still choose System or Dark in the side panel
 
   /* ---------- Section model ---------- */
   function keptDur(segs) {
