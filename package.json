@@ -1,0 +1,10 @@
+{
+  "name": "message-desk",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dev": "node dev/server.js",
+    "test": "node --experimental-test-module-mocks --test test/*.test.js"
+  }
+}

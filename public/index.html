@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Message Desk</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%231c1c1e'/%3E%3Cpath d='M9 6.5v11l9-5.5z' fill='%23fff'/%3E%3C/svg%3E">
+<style>
+/* Layout: enterprise editing tool. Neutral workspace, white surfaces separated by soft shadow rings, one blue primary action per screen. Red = Remove, Blue = Keep. SF Pro (system) at regular weight throughout. */
+:root {
+  --bg: #f5f5f4; --surface: #ffffff; --surface-2: #fafaf9; --sunken: #f0f0ee;
+  --line: #e7e7e4; --field: #d4d4d0;
+  --ink: #1c1c1e; --ink-2: #48484d; --muted: #6c6c72;
+  --blue: #2f5bea; --blue-soft: #edf1fd; --blue-ring: rgba(47, 91, 234, .22); --on-accent: #ffffff;
+  --red: #d6363b; --keep-line: #4a74ff;
+  --keep-fill: rgba(47, 91, 234, .26); --remove-fill: rgba(214, 54, 59, .42);
+  --ok: #15803d; --ok-soft: #e8f5ec; --warn: #8a4a0b; --warn-soft: #fdf1e1;
+  --mark: #f5a524; --stage: #0b0c0e; --film: #1b1d22;
+  --ring: 0 0 0 1px rgba(0, 0, 0, .07), 0 1px 2px rgba(0, 0, 0, .04);
+  --ring-raised: 0 0 0 1px rgba(0, 0, 0, .06), 0 12px 32px -8px rgba(0, 0, 0, .18), 0 2px 6px rgba(0, 0, 0, .06);
+  --img-edge: inset 0 0 0 1px rgba(0, 0, 0, .1);
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Helvetica Neue", "Segoe UI", Roboto, Arial, sans-serif;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111113; --surface: #1b1b1e; --surface-2: #202023; --sunken: #26262a;
+    --line: #2c2c31; --field: #3c3c42;
+    --ink: #ececef; --ink-2: #c7c7cc; --muted: #9b9ba3;
+    --blue: #3e63f0; --blue-soft: #1c2441; --blue-ring: rgba(94, 128, 255, .3);
+    --ok: #4ade80; --ok-soft: #142d1e; --warn: #f5b84a; --warn-soft: #36270d;
+    --ring: 0 0 0 1px rgba(255, 255, 255, .07);
+    --ring-raised: 0 0 0 1px rgba(255, 255, 255, .08), 0 16px 36px -8px rgba(0, 0, 0, .6);
+    --img-edge: inset 0 0 0 1px rgba(255, 255, 255, .1);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111113; --surface: #1b1b1e; --surface-2: #202023; --sunken: #26262a;
+  --line: #2c2c31; --field: #3c3c42;
+  --ink: #ececef; --ink-2: #c7c7cc; --muted: #9b9ba3;
+  --blue: #3e63f0; --blue-soft: #1c2441; --blue-ring: rgba(94, 128, 255, .3);
+  --ok: #4ade80; --ok-soft: #142d1e; --warn: #f5b84a; --warn-soft: #36270d;
+  --ring: 0 0 0 1px rgba(255, 255, 255, .07);
+  --ring-raised: 0 0 0 1px rgba(255, 255, 255, .08), 0 16px 36px -8px rgba(0, 0, 0, .6);
+  --img-edge: inset 0 0 0 1px rgba(255, 255, 255, .1);
+  color-scheme: dark;
+}
+.app.t-light {
+  --bg: #f5f5f4; --surface: #ffffff; --surface-2: #fafaf9; --sunken: #f0f0ee;
+  --line: #e7e7e4; --field: #d4d4d0;
+  --ink: #1c1c1e; --ink-2: #48484d; --muted: #6c6c72;
+  --blue: #2f5bea; --blue-soft: #edf1fd; --blue-ring: rgba(47, 91, 234, .22);
+  --ok: #15803d; --ok-soft: #e8f5ec; --warn: #8a4a0b; --warn-soft: #fdf1e1;
+  --ring: 0 0 0 1px rgba(0, 0, 0, .07), 0 1px 2px rgba(0, 0, 0, .04);
+  --ring-raised: 0 0 0 1px rgba(0, 0, 0, .06), 0 12px 32px -8px rgba(0, 0, 0, .18), 0 2px 6px rgba(0, 0, 0, .06);
+  --img-edge: inset 0 0 0 1px rgba(0, 0, 0, .1);
+  color-scheme: light;
+}
+.app.t-dark {
+  --bg: #111113; --surface: #1b1b1e; --surface-2: #202023; --sunken: #26262a;
+  --line: #2c2c31; --field: #3c3c42;
+  --ink: #ececef; --ink-2: #c7c7cc; --muted: #9b9ba3;
+  --blue: #3e63f0; --blue-soft: #1c2441; --blue-ring: rgba(94, 128, 255, .3);
+  --ok: #4ade80; --ok-soft: #142d1e; --warn: #f5b84a; --warn-soft: #36270d;
+  --ring: 0 0 0 1px rgba(255, 255, 255, .07);
+  --ring-raised: 0 0 0 1px rgba(255, 255, 255, .08), 0 16px 36px -8px rgba(0, 0, 0, .6);
+  --img-edge: inset 0 0 0 1px rgba(255, 255, 255, .1);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 14px; line-height: 1.45; font-weight: 400; -webkit-font-smoothing: antialiased; letter-spacing: -0.006em; }
+b, strong, h1, h2, h3, th, button, input, textarea { font-weight: 400; }
+[hidden] { display: none !important; }
+.app { height: 100%; background: var(--bg); color: var(--ink); display: flex; flex-direction: column; }
+.view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.view.scroll { overflow-y: auto; }
+button, input, textarea, select { font-family: inherit; font-size: inherit; color: inherit; letter-spacing: inherit; }
+button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.num { font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+h1, h2, h3 { margin: 0; text-wrap: balance; }
+p { margin: 0; }
+.h1 { font-size: 26px; letter-spacing: -0.022em; line-height: 1.2; }
+kbd { font-family: var(--font); font-size: 11px; font-variant-numeric: tabular-nums; min-width: 18px; text-align: center; padding: 1px 5px; border-radius: 5px; background: var(--sunken); color: var(--muted); }
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid transparent; background: var(--surface); box-shadow: var(--ring); color: var(--ink); white-space: nowrap; transition: background-color .15s ease-out, transform .15s ease-out, opacity .15s ease-out; }
+.btn.primary { background: var(--blue); box-shadow: none; color: var(--on-accent); padding: 0 14px; }
+.btn:active:not(:disabled), .icon-btn:active:not(:disabled), .play:active, .pbtn:active { transform: scale(.96); }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+@media (hover: hover) {
+  .btn:hover:not(:disabled) { background: var(--surface-2); }
+  .btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--blue) 90%, #000); }
+  .icon-btn:hover:not(:disabled) { background: var(--sunken); }
+}
+.icon-btn { width: 32px; height: 32px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--ink-2); display: inline-flex; align-items: center; justify-content: center; flex: none; transition: background-color .15s ease-out, transform .15s ease-out, color .15s ease-out; }
+.icon-btn[aria-pressed="true"] { background: var(--blue-soft); color: var(--blue); }
+.icon-btn:disabled { opacity: .35; cursor: not-allowed; }
+.icon-btn.framed { box-shadow: var(--ring); background: var(--surface); }
+.link { background: none; border: 0; padding: 0; color: var(--blue); }
+svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Top bar */
+.topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; min-height: 52px; padding-block: 8px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); background: var(--surface); box-shadow: 0 1px 0 var(--line); position: relative; z-index: 3; flex: none; }
+.tb-left, .tb-right { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.tb-right { flex-wrap: wrap; justify-content: flex-end; }
+.tb-title { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sep { width: 1px; height: 16px; background: var(--line); }
+.wordmark { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.logo { width: 24px; height: 24px; border-radius: 6px; background: var(--ink); display: flex; align-items: center; justify-content: center; }
+.logo svg path { fill: var(--surface); }
+.pill { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 11px; border-radius: 999px; background: var(--sunken); color: var(--ink-2); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pill .bar { width: 48px; height: 4px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.pill .bar i { display: block; height: 100%; width: 0; background: var(--blue); transition: width .2s linear; }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.banner { margin: 12px 16px 0; padding: 10px 14px; border-radius: 10px; background: var(--warn-soft); color: var(--warn); font-size: 13px; display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+
+/* Upload */
+.upload-wrap { width: 100%; max-width: 760px; margin: 0 auto; padding-block: 56px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 24px; }
+.drop { border: 1.5px dashed var(--field); border-radius: 16px; background: var(--surface); min-height: 300px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 32px 16px; text-align: center; transition: background-color .15s ease-out, border-color .15s ease-out; }
+.drop.over { border-color: var(--blue); background: var(--blue-soft); }
+.drop .up { width: 48px; height: 48px; border-radius: 50%; background: var(--blue); color: #fff; display: flex; align-items: center; justify-content: center; margin-bottom: 4px; }
+.drop .up svg.i { width: 20px; height: 20px; stroke-width: 1.75; }
+.drop .t { font-size: 17px; letter-spacing: -0.015em; }
+.drop .err { color: var(--red); }
+.card { background: var(--surface); border-radius: 12px; box-shadow: var(--ring); }
+.continue { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; }
+.fine { font-size: 12px; color: var(--muted); }
+
+/* Editor */
+.edit-body { flex: 1; min-height: 0; display: flex; }
+.edit-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.stage { flex: 1; min-height: 180px; padding: 16px 16px 12px; display: flex; }
+.video-box { position: relative; flex: 1; min-width: 0; background: var(--stage); border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center; box-shadow: var(--img-edge); }
+.video-box video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.demo-screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #8e939c; font-size: 13px; }
+.demo-screen .big { font-size: clamp(24px, 4vw, 44px); color: #e9eaee; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.demo-screen.wait { padding: 24px; text-align: center; text-wrap: balance; }
+.tl { position: relative; margin: 0 16px 16px; padding: 8px 12px 0; background: var(--surface); border-radius: 12px; box-shadow: var(--ring); flex: none; }
+.tl-bar { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px; min-height: 44px; }
+.grp { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.grp.r { justify-content: flex-end; }
+.play { position: relative; width: 34px; height: 34px; border-radius: 50%; border: 0; background: var(--ink); color: var(--surface); display: inline-flex; align-items: center; justify-content: center; transition: transform .15s ease-out; }
+.play svg { position: absolute; width: 14px; height: 14px; transition: opacity .3s var(--ease), transform .3s var(--ease), filter .3s var(--ease); }
+.play svg path { fill: currentColor; }
+.play .i-play { transform: translateX(1px); }
+.play .i-pause { opacity: 0; transform: scale(.25); filter: blur(4px); }
+.play.on .i-play { opacity: 0; transform: scale(.25); filter: blur(4px); }
+.play.on .i-pause { opacity: 1; transform: scale(1); filter: blur(0); }
+.tc-btn { width: 120px; height: 30px; padding: 0 8px; border-radius: 7px; border: 1px solid var(--field); background: var(--surface); font-size: 14px; font-variant-numeric: tabular-nums; color: var(--ink); text-align: left; cursor: text; transition: border-color .15s ease-out, background-color .15s ease-out; }
+@media (hover: hover) { .tc-btn:hover { border-color: var(--muted); } }
+.combo { position: relative; }
+.menu { position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 20; max-height: 252px; overflow-y: auto; overscroll-behavior: contain; padding: 4px; background: var(--surface); border: 1px solid transparent; border-radius: 10px; box-shadow: var(--ring-raised); }
+.opt { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; height: 36px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; text-align: left; font-size: 14px; color: var(--ink); }
+.opt.active { background: var(--sunken); }
+.opt .hint-r { font-size: 12px; color: var(--muted); }
+.menu .empty { padding: 9px 10px; font-size: 13px; color: var(--muted); }
+.tree { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.tree .row { display: flex; align-items: center; gap: 8px; min-height: 26px; color: var(--ink-2); min-width: 0; }
+.tree .row span { overflow-wrap: anywhere; }
+.tree .row.new span { color: var(--ink); }
+.tree svg.i { width: 14px; height: 14px; flex: none; color: var(--muted); }
+.tree .badge { font-size: 11px; color: var(--blue); background: var(--blue-soft); padding: 0 6px; border-radius: 4px; flex: none; }
+.tc-in { width: 120px; height: 30px; padding: 0 8px; border-radius: 7px; border: 1px solid var(--blue); box-shadow: 0 0 0 3px var(--blue-ring); background: var(--surface); font-size: 14px; font-variant-numeric: tabular-nums; outline: none; }
+.tc-dur { font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.inout { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.zoom { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border-radius: 9px; background: var(--sunken); }
+.zoom .icon-btn { width: 28px; height: 28px; border-radius: 7px; }
+.zoom .lvl { min-width: 40px; text-align: center; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.track-scroll { margin-top: 4px; overflow-x: auto; overflow-y: hidden; border-radius: 6px; scrollbar-width: thin; overscroll-behavior-x: contain; }
+.track-inner { position: relative; width: 100%; height: 96px; cursor: text; touch-action: none; user-select: none; -webkit-user-select: none; }
+.ruler { position: absolute; left: 0; right: 0; top: 0; height: 24px; overflow: hidden; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ruler .maj { position: absolute; bottom: 0; height: 24px; padding-left: 5px; border-left: 1px solid var(--field); white-space: nowrap; line-height: 16px; }
+.ruler .min { position: absolute; bottom: 0; height: 5px; border-left: 1px solid var(--field); }
+.film { position: absolute; left: 0; right: 0; top: 26px; height: 64px; overflow: hidden; border-radius: 6px; background: var(--film); box-shadow: var(--img-edge); }
+.tile { position: absolute; top: 0; height: 64px; background-color: var(--film); background-position: center; background-size: cover; box-shadow: inset -1px 0 0 rgba(0, 0, 0, .55); }
+.ovl { position: absolute; left: 0; right: 0; top: 26px; height: 64px; pointer-events: none; }
+.seg { position: absolute; top: 0; bottom: 0; border-radius: 4px; overflow: hidden; transition: background-color .15s ease-out; }
+.seg.keep { background: var(--keep-fill); border: 1.5px solid var(--keep-line); }
+.seg.remove { background: var(--remove-fill); border: 1.5px solid var(--red); }
+.seg.sel { border-width: 2.5px; box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, .9); }
+.seg .tag { position: absolute; left: 4px; top: 4px; font-size: 11px; color: #fff; padding: 0 6px; height: 17px; line-height: 17px; border-radius: 4px; white-space: nowrap; }
+.seg.keep .tag { background: #2f5bea; }
+.seg.remove .tag { background: var(--red); }
+.pending { position: absolute; top: 0; bottom: 0; border-radius: 4px; background: rgba(245, 165, 36, .22); border: 2px solid var(--mark); }
+.mark { position: absolute; top: -26px; bottom: 0; width: 2px; margin-left: -1px; background: var(--mark); }
+.mark span { position: absolute; top: 0; font-size: 10px; letter-spacing: .02em; color: #1b1405; background: var(--mark); height: 15px; line-height: 15px; padding: 0 4px; border-radius: 3px; }
+.mark.in span { left: 0; }
+.mark.out span { right: 0; }
+.playhead { position: absolute; top: 0; bottom: 0; width: 1.5px; margin-left: -0.75px; background: var(--ink); pointer-events: none; z-index: 2; }
+.playhead::before { content: ""; position: absolute; top: 0; left: -5px; width: 11.5px; height: 12px; border-radius: 3px 3px 6px 6px; background: var(--ink); }
+.tl-foot { position: relative; min-height: 46px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 4px 0 6px; }
+.hint { font-size: 12px; color: var(--muted); }
+.legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.legend .k { background: var(--keep-fill); border: 1.5px solid var(--keep-line); }
+.legend .r { background: var(--remove-fill); border: 1.5px solid var(--red); }
+.pop { position: absolute; z-index: 5; display: flex; align-items: center; gap: 6px; padding: 5px 5px 5px 12px; background: var(--surface); border: 1px solid transparent; border-radius: 11px; box-shadow: var(--ring-raised); white-space: nowrap; }
+.pop .range { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; margin-right: 4px; }
+.pbtn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 7px; font-size: 13px; background: transparent; transition: background-color .15s ease-out, color .15s ease-out, transform .15s ease-out; }
+.pbtn kbd { background: transparent; color: inherit; opacity: .7; padding: 0; min-width: 0; }
+.pbtn.remove { border: 1px solid var(--red); color: var(--red); }
+.pbtn.keep { border: 1px solid var(--blue); color: var(--blue); }
+.pbtn.remove.on { background: var(--red); color: #fff; }
+.pbtn.keep.on { background: var(--blue); color: #fff; }
+@media (hover: hover) { .pbtn.remove:hover { background: var(--red); color: #fff; } .pbtn.keep:hover { background: var(--blue); color: #fff; } }
+
+/* Side panel */
+.panel { width: 320px; flex: none; background: var(--surface); box-shadow: -1px 0 0 var(--line); overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; }
+.psec { padding: 16px; box-shadow: 0 1px 0 var(--line); display: flex; flex-direction: column; gap: 10px; }
+.psec h3 { font-size: 12px; color: var(--muted); letter-spacing: 0; }
+.cut-item { display: flex; align-items: center; gap: 10px; width: 100%; height: 36px; padding: 0 10px; border-radius: 8px; border: 0; background: transparent; text-align: left; font-size: 13px; transition: background-color .15s ease-out; }
+@media (hover: hover) { .cut-item:hover { background: var(--sunken); } }
+.cut-item .dot { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.cut-item .dot.keep { background: var(--keep-line); }
+.cut-item .dot.remove { background: var(--red); }
+.seg-ctl { display: flex; background: var(--sunken); border-radius: 9px; padding: 2px; }
+.seg-ctl button { flex: 1; height: 30px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 13px; transition: background-color .15s ease-out, color .15s ease-out; }
+.seg-ctl button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--ring); }
+.keys { display: grid; grid-template-columns: auto 1fr; gap: 7px 12px; font-size: 13px; align-items: center; color: var(--ink-2); }
+.keys kbd { justify-self: start; }
+.check { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px; font-size: 13px; }
+.check input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--blue); }
+
+/* Forms */
+.form-wrap { width: 100%; max-width: 680px; margin: 0 auto; padding-block: 40px 72px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 16px; }
+.fsec { padding: 20px; display: flex; flex-direction: column; gap: 18px; }
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.field > label, .field > .lbl { font-size: 13px; color: var(--ink-2); }
+.row2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.input { height: 36px; padding: 0 11px; border: 1px solid var(--field); border-radius: 8px; background: var(--surface); width: 100%; transition: border-color .15s ease-out, box-shadow .15s ease-out; }
+textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
+.input:focus { border-color: var(--blue); outline: none; box-shadow: 0 0 0 3px var(--blue-ring); }
+.help { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; font-variant-numeric: tabular-nums; }
+.chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: 36px; padding: 3px 4px; border: 1px solid var(--field); border-radius: 8px; background: var(--surface); transition: border-color .15s ease-out, box-shadow .15s ease-out; cursor: text; }
+.chips:focus-within { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-ring); }
+.chip { display: inline-flex; align-items: center; gap: 2px; height: 26px; padding: 0 2px 0 9px; border-radius: 6px; background: var(--sunken); font-size: 13px; }
+.chip button { width: 22px; height: 22px; border: 0; background: transparent; color: var(--muted); border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; }
+.chips input { flex: 1 1 120px; min-width: 80px; height: 28px; padding: 0 6px; border: 0; outline: none; background: transparent; }
+.sugg { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); }
+.sugg button { height: 26px; padding: 0 10px; border: 1px dashed var(--field); border-radius: 999px; background: transparent; font-size: 12px; color: var(--ink-2); transition: background-color .15s ease-out; }
+@media (hover: hover) { .sugg button:hover { background: var(--sunken); } }
+.file-row { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 10px; border-radius: 9px; background: var(--surface-2); box-shadow: var(--ring); }
+.file-ico { width: 30px; height: 36px; border-radius: 4px; background: var(--sunken); display: flex; align-items: center; justify-content: center; font-size: 9px; letter-spacing: .03em; color: var(--muted); flex: none; }
+.adv-toggle { width: 100%; min-height: 50px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; border: 0; background: transparent; font-size: 14px; }
+.adv-toggle svg.i { transition: transform .2s var(--ease); color: var(--muted); }
+.adv-toggle[aria-expanded="true"] svg.i { transform: rotate(180deg); }
+.adv-body { padding: 0 20px 20px; display: flex; flex-direction: column; gap: 16px; }
+.sunday { display: flex; flex-direction: column; gap: 2px; padding-top: 12px; box-shadow: 0 -1px 0 var(--line); }
+
+/* Review */
+.review-wrap { width: 100%; max-width: 1240px; margin: 0 auto; padding-block: 24px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-wrap: wrap; gap: 20px; }
+.rv-main { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.rv-side { flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.rv-video { position: relative; width: 100%; aspect-ratio: 16 / 9; max-width: 100%; background: var(--stage); border-radius: 10px; overflow: hidden; box-shadow: var(--img-edge); }
+.rv-video video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.rv-ctl { display: flex; align-items: center; gap: 12px; }
+.rv-bar { position: relative; flex: 1; height: 8px; border-radius: 6px; background: var(--sunken); cursor: pointer; }
+.rv-bar .rm { position: absolute; top: 0; bottom: 0; background: var(--red); opacity: .5; }
+.rv-bar .ph { position: absolute; top: -4px; bottom: -4px; width: 3px; margin-left: -1.5px; border-radius: 2px; background: var(--ink); }
+.kv { display: flex; justify-content: space-between; gap: 14px; padding-top: 10px; box-shadow: 0 -1px 0 var(--line); font-size: 13px; }
+.kv span:last-child { text-align: right; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.side-card { padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+.chk { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--ink-2); }
+.chk i { width: 16px; height: 16px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center; background: var(--sunken); }
+.chk.done { color: var(--ink); }
+.chk.done i { background: var(--ok-soft); }
+.chk.done i::after { content: ""; width: 7px; height: 4px; border-left: 1.5px solid var(--ok); border-bottom: 1.5px solid var(--ok); transform: rotate(-45deg) translate(1px, -1px); }
+.sendback { display: flex; flex-direction: column; gap: 8px; }
+
+/* Published */
+.done-wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding-block: 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.done-card { max-width: 460px; width: 100%; padding: 32px; text-align: center; display: flex; flex-direction: column; gap: 12px; align-items: center; }
+.done-ico { width: 48px; height: 48px; border-radius: 50%; background: var(--ok-soft); color: var(--ok); display: flex; align-items: center; justify-content: center; }
+.gbtn { min-height: 44px; display: flex; justify-content: center; margin-top: 6px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .enter { animation: enter .3s ease-out both; }
+  @keyframes enter { from { opacity: 0; transform: translateY(12px); filter: blur(4px); } }
+}
+@media (max-width: 860px) {
+  .edit-body { flex-direction: column; }
+  .panel { width: 100%; box-shadow: 0 -1px 0 var(--line); max-height: 50vh; }
+  .tl-bar { grid-template-columns: 1fr; justify-items: start; }
+  .grp.r { justify-content: flex-start; }
+}
+.no-motion * { transition: none !important; }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- 0 · Sign in -->
+  <section class="view scroll" id="v-signin" hidden>
+    <header class="topbar">
+      <div class="tb-left"><span class="wordmark"><span class="logo"><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 2v8l7-4z"></path></svg></span>Message Desk</span></div>
+      <div class="tb-right"><span class="tb-sub">SENT Life Center</span></div>
+    </header>
+    <div class="done-wrap">
+      <div class="card done-card enter">
+        <h1 style="font-size: 20px; letter-spacing: -0.015em;">Sign in to Message Desk</h1>
+        <p class="muted" id="signinSub">Use the Google account you use with the tech team.</p>
+        <div class="gbtn" id="gbtn"></div>
+        <p class="fine" id="signinErr" style="color: var(--red);" hidden></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 1 · Upload -->
+  <section class="view scroll" id="v-upload" hidden>
+    <header class="topbar">
+      <div class="tb-left"><span class="wordmark"><span class="logo"><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 2v8l7-4z"></path></svg></span>Message Desk</span></div>
+      <div class="tb-right"><span class="tb-sub">SENT Life Center</span><span class="sep" aria-hidden="true"></span><button class="link" id="signOut" style="font-size: 12px;">Sign out</button></div>
+    </header>
+    <div class="upload-wrap enter">
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <h1 class="h1">New post</h1>
+        <p class="muted">Drop the recording and any notes files to start a Sunday, Hebron or Charis post.</p>
+      </div>
+      <div class="drop" id="drop">
+        <div class="up"><svg class="i" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 13.5V4M6 8l4-4 4 4M4 16h12"></path></svg></div>
+        <span class="t" id="dropTitle">Drop the recording here</span>
+        <span class="muted" id="dropSub">MP4 or MOV from Zoom or the ATEM, plus any notes. <button class="link" id="chooseBtn">Choose files</button></span>
+        <span class="err" id="dropErr" hidden></span>
+        <input type="file" id="fileIn" multiple accept="video/*,.mov,.mp4,.m4v,.pdf,.doc,.docx,.ppt,.pptx,.key,.pages,.txt,.png,.jpg,.jpeg" hidden>
+        <button class="btn" id="demoBtn" style="margin-top: 10px;">Try with a sample recording</button>
+      </div>
+      <div id="continueList" style="display: flex; flex-direction: column; gap: 12px;"></div>
+      <p class="fine" style="text-align: center;">Recordings are saved to the SENT Life Center Google Drive. Nothing goes on the website until someone publishes it.</p>
+    </div>
+  </section>
+
+  <!-- 2 · Edit -->
+  <section class="view" id="v-edit" hidden>
+    <header class="topbar">
+      <div class="tb-left">
+        <button class="icon-btn" id="editBack" aria-label="Back"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5 5.5 8l4.5 4.5"></path></svg></button>
+        <span class="tb-title" id="editTitle"></span>
+        <span class="sep" aria-hidden="true"></span>
+        <span class="tb-sub" id="editSub"></span>
+      </div>
+      <div class="tb-right">
+        <span class="pill" id="upPill" hidden><span class="bar"><i></i></span><span class="lbl"></span></span>
+        <button class="icon-btn" id="panelBtn" aria-label="Side panel" aria-pressed="false" title="Side panel"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2.75" width="12" height="10.5" rx="2"></rect><path d="M10 2.75v10.5"></path></svg></button>
+        <button class="btn primary" id="pushBtn">Push to Render</button>
+      </div>
+    </header>
+    <div class="banner" id="sentBack" hidden></div>
+    <div class="edit-body">
+      <div class="edit-main">
+        <div class="stage">
+          <div class="video-box">
+            <video id="vid" playsinline preload="auto"></video>
+            <div class="demo-screen" id="demoScreen" hidden><span>Sample recording</span><span class="big" id="demoTc">0:00</span></div>
+            <div class="demo-screen wait" id="waitScreen" hidden><span id="waitMsg"></span></div>
+          </div>
+        </div>
+        <div class="tl" id="tl">
+          <div class="tl-bar">
+            <div class="grp">
+              <button class="btn" id="inBtn">Mark in <kbd>I</kbd></button>
+              <button class="btn" id="outBtn">Mark out <kbd>O</kbd></button>
+              <span class="sep" aria-hidden="true"></span>
+              <button class="icon-btn" id="undoBtn" aria-label="Undo" title="Undo (⌘ Z)" disabled><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 3.5 2.5 6.5l3 3"></path><path d="M2.5 6.5h7a3.5 3.5 0 0 1 0 7H7"></path></svg></button>
+              <button class="icon-btn" id="redoBtn" aria-label="Redo" title="Redo (⌘ ⇧ Z)" disabled><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="m10.5 3.5 3 3-3 3"></path><path d="M13.5 6.5h-7a3.5 3.5 0 0 0 0 7H9"></path></svg></button>
+              <span class="inout" id="inoutTxt"></span>
+            </div>
+            <div class="grp">
+              <button class="icon-btn" id="back5" aria-label="Back 5 seconds" title="Back 5 seconds"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M7.5 4 3.5 8l4 4M12.5 4l-4 4 4 4"></path></svg></button>
+              <button class="play" id="playBtn" aria-label="Play">
+                <svg class="i-play" viewBox="0 0 14 14" aria-hidden="true"><path d="M3.5 2.2v9.6l8-4.8z"></path></svg>
+                <svg class="i-pause" viewBox="0 0 14 14" aria-hidden="true"><path d="M3.5 2.5h2.4v9H3.5zM8.1 2.5h2.4v9H8.1z"></path></svg>
+              </button>
+              <button class="icon-btn" id="fwd5" aria-label="Forward 5 seconds" title="Forward 5 seconds"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="m8.5 4 4 4-4 4M3.5 4l4 4-4 4"></path></svg></button>
+              <span style="display: inline-flex; align-items: center;">
+                <button class="tc-btn" id="tcNow" title="Click to type a time">0:00.00</button>
+                <input class="tc-in" id="tcIn" aria-label="Go to time" hidden>
+                <span class="tc-dur">/ <span id="tcDur">0:00</span></span>
+              </span>
+            </div>
+            <div class="grp r">
+              <span class="zoom" role="group" aria-label="Timeline zoom">
+                <button class="icon-btn" id="zOut" aria-label="Zoom out" title="Zoom out (⌘ −)"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"></circle><path d="m10.5 10.5 3 3M5 7h4"></path></svg></button>
+                <button class="lvl link" id="zFit" title="Fit the whole recording (⌘ 0)" style="color: var(--muted);">Fit</button>
+                <button class="icon-btn" id="zIn" aria-label="Zoom in" title="Zoom in (⌘ +)"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"></circle><path d="m10.5 10.5 3 3M5 7h4M7 5v4"></path></svg></button>
+              </span>
+            </div>
+          </div>
+          <div class="track-scroll" id="tScroll">
+            <div class="track-inner" id="tInner">
+              <div class="ruler" id="ruler"></div>
+              <div class="film" id="film"></div>
+              <div class="ovl" id="ovl"></div>
+              <div class="playhead" id="ph"></div>
+            </div>
+          </div>
+          <div class="tl-foot">
+            <span class="hint" id="hint"></span>
+            <span class="legend" id="legend" hidden><span><i class="r"></i>Remove</span><span><i class="k"></i>Keep</span></span>
+          </div>
+          <div class="pop" id="pop" hidden>
+            <span class="range" id="popRange"></span>
+            <button class="pbtn remove" id="popRemove">Remove <kbd>R</kbd></button>
+            <button class="pbtn keep" id="popKeep">Keep <kbd>K</kbd></button>
+            <button class="icon-btn" id="popClear" aria-label="Clear in and out points" style="width: 28px; height: 28px;"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 4.5 7 7M11.5 4.5l-7 7"></path></svg></button>
+          </div>
+        </div>
+      </div>
+      <aside class="panel" id="panel" hidden>
+        <div class="psec">
+          <h3>Sections</h3>
+          <div id="cutList" style="display: flex; flex-direction: column; gap: 2px;"></div>
+          <div><button class="btn" id="clearBtn">Clear all cuts</button></div>
+        </div>
+        <div class="psec">
+          <h3>Playback</h3>
+          <label class="check">Skip removed parts while playing<input type="checkbox" id="skipChk"></label>
+        </div>
+        <div class="psec">
+          <h3>Appearance</h3>
+          <div class="seg-ctl" id="themeCtl">
+            <button data-theme-opt="system" aria-pressed="true">System</button>
+            <button data-theme-opt="light" aria-pressed="false">Light</button>
+            <button data-theme-opt="dark" aria-pressed="false">Dark</button>
+          </div>
+        </div>
+        <div class="psec">
+          <h3>Keyboard shortcuts</h3>
+          <div class="keys">
+            <kbd>Space</kbd><span>Play or pause</span>
+            <kbd>I</kbd><span>Mark in at the playhead</span>
+            <kbd>O</kbd><span>Mark out at the playhead</span>
+            <kbd>R</kbd><span>Remove the marked range</span>
+            <kbd>K</kbd><span>Keep the marked range</span>
+            <kbd>← →</kbd><span>Move one frame</span>
+            <kbd>⇧ ← →</kbd><span>Move one second</span>
+            <kbd>⌘ + / −</kbd><span>Zoom the timeline</span>
+            <kbd>⌘ 0</kbd><span>Fit the whole recording</span>
+            <kbd>Esc</kbd><span>Clear in and out</span>
+            <kbd>⌘ Z</kbd><span>Undo</span>
+            <kbd>⌘ ⇧ Z</kbd><span>Redo (or ⌘ Y)</span>
+          </div>
+          <p class="fine">Scroll or pinch over the timeline to zoom. Shift-scroll moves sideways.</p>
+        </div>
+        <div class="psec" style="box-shadow: none;">
+          <h3>Coming soon</h3>
+          <p class="fine" style="font-size: 13px;">A transcript and suggested cuts will appear here.</p>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- 3 · Details -->
+  <section class="view scroll" id="v-details" hidden>
+    <header class="topbar">
+      <div class="tb-left">
+        <button class="icon-btn" id="detBack" aria-label="Back to edit"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5 5.5 8l4.5 4.5"></path></svg></button>
+        <span class="tb-title" id="detTitle"></span>
+      </div>
+      <div class="tb-right">
+        <span class="pill" id="detPill"><span class="bar"><i></i></span><span class="lbl">Rendering</span></span>
+        <button class="btn primary" id="finishBtn">Finish</button>
+      </div>
+    </header>
+    <div class="banner" id="detBanner" hidden></div>
+    <div class="form-wrap enter">
+      <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 4px;">
+        <h1 class="h1">Post details</h1>
+        <p class="muted">Finish stages this as a draft on the website. Nothing goes live until someone approves it.</p>
+      </div>
+      <div class="card fsec">
+        <div class="field">
+          <span class="lbl">Collection</span>
+          <div class="seg-ctl" id="collCtl">
+            <button data-coll="Sunday" aria-pressed="false">Sunday</button>
+            <button data-coll="Hebron" aria-pressed="true">Hebron</button>
+            <button data-coll="Charis" aria-pressed="false">Charis</button>
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field"><label for="fDate">Date</label><input class="input" id="fDate" type="date"></div>
+          <div class="field"><label for="fPart">Part</label><input class="input" id="fPart" inputmode="numeric" placeholder="None"></div>
+        </div>
+        <div class="field">
+          <label for="fTitle">Message name</label>
+          <input class="input" id="fTitle" placeholder="e.g. Into the Deep">
+          <div class="help"><span id="titleHelp"></span></div>
+        </div>
+        <div class="field">
+          <label for="fSpk">Speaker(s)</label>
+          <div class="combo">
+            <div class="chips" id="spkChips"><input id="fSpk" placeholder="Choose or type a name" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="spkMenu" aria-autocomplete="list"></div>
+            <div class="menu" id="spkMenu" role="listbox" hidden></div>
+          </div>
+        </div>
+        <div class="field">
+          <label for="fTag">Topic tags</label>
+          <div class="combo">
+            <div class="chips" id="tagChips"><input id="fTag" placeholder="Choose or type a tag" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="tagMenu" aria-autocomplete="list"></div>
+            <div class="menu" id="tagMenu" role="listbox" hidden></div>
+          </div>
+        </div>
+        <div class="field">
+          <span class="lbl">Notes</span>
+          <div id="notesList" style="display: flex; flex-direction: column; gap: 6px;"></div>
+          <div><button class="btn" id="addNotes">Add notes file</button><input type="file" id="notesIn" multiple hidden></div>
+        </div>
+      </div>
+      <div class="card">
+        <button class="adv-toggle" id="advBtn" aria-expanded="false" aria-controls="advBody">Advanced
+          <svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 6.5 3.5 3.5 3.5-3.5"></path></svg>
+        </button>
+        <div class="adv-body" id="advBody" hidden>
+          <div class="field"><label for="fSlug">Page address</label><input class="input" id="fSlug"><div class="help"><span id="slugPath"></span></div></div>
+          <div class="field"><label for="fDesc">Short description</label><textarea class="input" id="fDesc" rows="2" maxlength="200"></textarea><div class="help"><span></span><span id="descCount">0 / 200</span></div></div>
+          <div class="field"><label for="fRes">Linked resource</label><input class="input" id="fRes" placeholder="https://"></div>
+          <div class="row2">
+            <div class="field"><label for="fEsv">Spanish video</label><input class="input" id="fEsv" placeholder="Vimeo link"></div>
+            <div class="field"><label for="fEsa">Spanish audio</label><input class="input" id="fEsa" placeholder="Drive link"></div>
+            <div class="field"><label for="fJav">Japanese video</label><input class="input" id="fJav" placeholder="Vimeo link"></div>
+            <div class="field"><label for="fJaa">Japanese audio</label><input class="input" id="fJaa" placeholder="Drive link"></div>
+          </div>
+          <div class="sunday" id="sundayOpts" hidden>
+            <span class="muted" style="font-size: 12px; padding-bottom: 4px;">Sunday options</span>
+            <label class="check" for="fFeat">Featured message<input type="checkbox" id="fFeat"></label>
+            <label class="check" for="fHide">Hide from the Sunday Messages page<input type="checkbox" id="fHide"></label>
+            <label class="check" for="fSeq">Order on the page<input class="input" id="fSeq" inputmode="numeric" style="width: 90px;" placeholder="e.g. 2"></label>
+          </div>
+        </div>
+      </div>
+      <p id="detErr" style="color: var(--red); font-size: 13px;" hidden></p>
+    </div>
+  </section>
+
+  <!-- 4 · Review -->
+  <section class="view scroll" id="v-review" hidden>
+    <header class="topbar">
+      <div class="tb-left">
+        <button class="icon-btn" id="revBack" aria-label="Back to details"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5 5.5 8l4.5 4.5"></path></svg></button>
+        <span class="tb-title" id="revTitle"></span>
+        <span class="pill" id="revPill"></span>
+      </div>
+      <div class="tb-right">
+        <button class="btn primary" id="publishBtn" disabled>Publish to Webflow</button>
+      </div>
+    </header>
+    <div class="banner" id="revBanner" hidden></div>
+    <div class="review-wrap enter">
+      <div class="rv-main">
+        <div class="rv-video">
+          <video id="rvid" playsinline preload="auto"></video>
+          <div class="demo-screen" id="rDemo" hidden><span>Final edit</span><span class="big" id="rDemoTc">0:00</span></div>
+        </div>
+        <div class="rv-ctl">
+          <button class="play" id="rPlay" aria-label="Play final edit">
+            <svg class="i-play" viewBox="0 0 14 14" aria-hidden="true"><path d="M3.5 2.2v9.6l8-4.8z"></path></svg>
+            <svg class="i-pause" viewBox="0 0 14 14" aria-hidden="true"><path d="M3.5 2.5h2.4v9H3.5zM8.1 2.5h2.4v9H8.1z"></path></svg>
+          </button>
+          <div class="rv-bar" id="rBar"></div>
+          <span class="num" style="font-size: 13px;"><span id="rNow">0:00</span> <span class="muted">/ <span id="rLen">0:00</span></span></span>
+        </div>
+        <p class="fine">This is the final edit. Removed sections are skipped.</p>
+        <div class="card side-card">
+          <div style="display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap;"><span>What was cut</span><button class="link" id="openEditor">Return to editor</button></div>
+          <div id="rvCuts"></div>
+        </div>
+      </div>
+      <div class="rv-side">
+        <div class="card side-card">
+          <span class="muted" style="font-size: 12px;" id="rvColl"></span>
+          <h2 style="font-size: 18px; letter-spacing: -0.015em; line-height: 1.3;" id="rvName"></h2>
+          <div id="rvRows"></div>
+        </div>
+        <div class="card side-card">
+          <span style="font-size: 13px;">Saved to Google Drive</span>
+          <div class="tree" id="driveTree"></div>
+        </div>
+        <div class="card side-card">
+          <span style="font-size: 13px;">Ready to publish</span>
+          <div id="rvChecks" style="display: flex; flex-direction: column; gap: 8px;"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 · Published -->
+  <section class="view scroll" id="v-done" hidden>
+    <header class="topbar">
+      <div class="tb-left"><span class="wordmark"><span class="logo"><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 2v8l7-4z"></path></svg></span>Message Desk</span></div>
+    </header>
+    <div class="done-wrap">
+      <div class="card done-card enter">
+        <div class="done-ico"><svg class="i" viewBox="0 0 20 20" style="width: 20px; height: 20px; stroke-width: 1.75;" aria-hidden="true"><path d="m4.5 10.5 3.5 3.5 7.5-8"></path></svg></div>
+        <h1 style="font-size: 20px; letter-spacing: -0.015em;" id="doneTitle">Published</h1>
+        <p class="muted" id="doneSub"></p>
+        <p class="fine" id="doneFine" hidden>Practice run · nothing was sent to the website.</p>
+        <button class="btn primary" id="newPost" style="margin-top: 6px;">Start a new post</button>
+      </div>
+    </div>
+  </section>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>
