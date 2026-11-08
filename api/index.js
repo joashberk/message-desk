@@ -66,6 +66,8 @@ export default async function handler(req, res) {
       return send(res, 200, { user: { email: t.email, name: t.name || '' } });
     }
     if (path === '/auth/signout' && req.method === 'POST') { clearUserCookie(req, res); return send(res, 200, { ok: true }); }
+    // Setup check: says only whether each connection works, never any details.
+    if (path === '/status' && req.method === 'GET') return send(res, 200, await status());
 
     // ----- everything below needs a team member -----
     const user = getUser(req);
@@ -150,6 +152,41 @@ export default async function handler(req, res) {
     console.error(req.method, path, e.status || '', e.message);
     return send(res, e.userMessage ? (e.status || 400) : 500, { error: friendly(e) });
   }
+}
+
+let statusCache = null;
+async function status() {
+  if (statusCache && statusCache.at > Date.now() - 60000) return statusCache.data;
+  const check = async (names, fn) => {
+    if (names.some((n) => !process.env[n])) return 'missing';
+    try { return (await fn()) ? 'ok' : 'failed'; } catch (e) { console.error('status', names[0], e.message); return 'failed'; }
+  };
+  const data = {
+    signIn: process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && allowedEmails().length ? 'ok' : 'missing',
+    drive: await check(['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REFRESH_TOKEN'], async () => {
+      const r = await G.gfetch('https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)');
+      const j = await r.json();
+      return r.ok && String(j.user && j.user.emailAddress).toLowerCase() === CONFIG.driveAccount;
+    }),
+    library: await check(['GOOGLE_REFRESH_TOKEN'], async () => {
+      const f = await G.getFile(CONFIG.libraryFolderId, 'id,trashed,capabilities(canAddChildren)');
+      return f && !f.trashed && f.capabilities && f.capabilities.canAddChildren;
+    }),
+    website: await check(['WEBFLOW_TOKEN'], async () => {
+      const r = await fetch('https://api.webflow.com/v2/collections/' + CONFIG.webflow.collections.Sunday.id, { headers: { Authorization: 'Bearer ' + process.env.WEBFLOW_TOKEN } });
+      return r.ok;
+    }),
+    vimeo: await check(['VIMEO_TOKEN'], async () => {
+      const r = await fetch('https://api.vimeo.com/me?fields=uri', { headers: { Authorization: 'bearer ' + process.env.VIMEO_TOKEN, Accept: 'application/vnd.vimeo.*+json;version=3.4' } });
+      return r.ok;
+    }),
+    renderJobs: await check(['GH_DISPATCH_TOKEN'], async () => {
+      const r = await fetch('https://api.github.com/repos/' + CONFIG.githubRepo + '/actions/workflows/render.yml', { headers: { Authorization: 'Bearer ' + process.env.GH_DISPATCH_TOKEN, Accept: 'application/vnd.github+json', 'User-Agent': 'message-desk' } });
+      return r.ok;
+    })
+  };
+  statusCache = { at: Date.now(), data };
+  return data;
 }
 
 function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
