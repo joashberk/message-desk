@@ -79,7 +79,7 @@ async function main() {
 
   // 1 · Download the full-quality original (0 → 10%)
   const orig = await G.getFile(e.original.fileId);
-  log('original', orig.name, orig.size, 'bytes; free disk', freeDisk());
+  log('original', Math.round(orig.size / 1e6), 'MB; free disk', Math.round(freeDisk() / 1e9), 'GB');
   const src = path.join(work, 'original.' + e.file.ext);
   await downloadToFile(orig.id, +orig.size, src, (at, size) => { state.pct = 1 + Math.floor(at / size * 9); save(); });
   const info = probe(src);
@@ -160,7 +160,7 @@ async function main() {
   await stillCurrent();
   Object.assign(state, { status: 'done', pct: 100, stage: 'Ready', finishedAt: new Date().toISOString() });
   await save(true);
-  log('render done', state.vimeoLink, state.mp3Link);
+  log('render done');
 }
 
 main().catch(async (err) => {

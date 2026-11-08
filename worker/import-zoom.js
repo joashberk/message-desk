@@ -20,7 +20,7 @@ async function check() {
   log('Zoom connection works. Recordings in the last 7 days:', (j.meetings || []).length);
   for (const mtg of j.meetings || []) {
     const coll = collectionFor(mtg.topic), f = pickFile(mtg.recording_files);
-    log('-', mtg.topic, '|', localDate(mtg.start_time, mtg.timezone), '|', coll && f ? 'would become a ' + coll + ' draft' : 'ignored (name or video not a match)');
+    log('-', localDate(mtg.start_time, mtg.timezone), '|', coll && f ? 'would become a ' + coll + ' draft' : 'ignored (name or video not a match)');
   }
 }
 
@@ -50,7 +50,7 @@ async function main() {
   const rec = await zoom('GET', '/meetings/' + encodeUuid(uuid) + '/recordings');
   const coll = collectionFor(rec.topic);
   const file = (rec.recording_files || []).find((f) => f.id === fileId) || pickFile(rec.recording_files);
-  if (!coll || !file) { log('Not a message recording; nothing to do:', rec.topic); return; }
+  if (!coll || !file) { log('Not a message recording; nothing to do'); return; }
 
   const dupes = await G.listFiles("appProperties has { key='zoomFile' and value='" + file.id + "' } and trashed = false", 'id');
   if (dupes.length) { log('Already in Message Desk'); return; }
@@ -62,7 +62,7 @@ async function main() {
     details: { source: { meetingId: rec.id, uuid: rec.uuid, topic: rec.topic, fileId: file.id, layout: file.recording_type } },
     appProperties: { zoomFile: String(file.id) }
   });
-  log('draft created for', rec.topic, date, coll);
+  log('draft created', date, coll);
 
   const state = { status: 'copying', pct: 0 };
   let importId;

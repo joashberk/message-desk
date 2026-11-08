@@ -21,7 +21,7 @@ async function main() {
   await save(true);
 
   const orig = await G.getFile(e.original.fileId);
-  log('original', orig.name, orig.size, 'bytes; free disk', freeDisk());
+  log('original', Math.round(orig.size / 1e6), 'MB; free disk', Math.round(freeDisk() / 1e9), 'GB');
   let src = path.join(work, 'original.' + e.file.ext);
   const local = process.env.LOCAL_ORIGINAL;
   if (local && fs.existsSync(local) && fs.statSync(local).size === +orig.size) src = local; // already on this machine (Zoom import)
