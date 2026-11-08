@@ -21,8 +21,10 @@ async function main() {
 
   const orig = await G.getFile(e.original.fileId);
   log('original', orig.name, orig.size, 'bytes; free disk', freeDisk());
-  const src = path.join(work, 'original.' + e.file.ext);
-  await downloadToFile(orig.id, +orig.size, src, (at, size) => { state.pct = Math.max(1, Math.floor(at / size * 40)); save(); });
+  let src = path.join(work, 'original.' + e.file.ext);
+  const local = process.env.LOCAL_ORIGINAL;
+  if (local && fs.existsSync(local) && fs.statSync(local).size === +orig.size) src = local; // already on this machine (Zoom import)
+  else await downloadToFile(orig.id, +orig.size, src, (at, size) => { state.pct = Math.max(1, Math.floor(at / size * 40)); save(); });
 
   const info = probe(src);
   log('probe', info);

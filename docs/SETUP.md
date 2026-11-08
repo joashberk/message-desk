@@ -13,6 +13,8 @@ Do these in order. Each key is pasted into a settings page, never into code, cha
 | `WEBFLOW_TOKEN` | Lets Message Desk add and publish website items | Yes | No |
 | `VIMEO_TOKEN` | Lets Message Desk upload to Vimeo | Yes | Yes |
 | `GH_DISPATCH_TOKEN` | Lets Message Desk start render jobs on GitHub | Yes | No |
+| `ZOOM_WEBHOOK_SECRET` | Proves calls about new recordings really come from Zoom | Yes | No |
+| `ZOOM_ACCOUNT_ID`, `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET` | Lets the import job copy cloud recordings | No | Yes |
 
 After changing anything in Vercel, redeploy (Deployments, the latest one, the "..." menu, Redeploy).
 
@@ -73,6 +75,24 @@ Expiration: the longest offered (set a reminder to renew it). Add it in Vercel a
 
 github.com/joashberk/message-desk, Settings, Secrets and variables, Actions, New repository secret. Add:
 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, `VIMEO_TOKEN`.
+
+## 9. Zoom cloud recordings (optional)
+
+Meetings recorded to the Zoom cloud become drafts automatically when their name includes **Hebron**,
+**Charis**, **X-Elle**, **CX** or **Sunday** and they're at least 5 minutes long. After the copy in Drive is
+confirmed, the Zoom recording moves to Zoom's trash (recoverable there for 30 days).
+
+1. marketplace.zoom.us, signed in as sentlifecenter.tech@gmail.com. Develop, Build App, **Server to Server OAuth App**. Name: Message Desk.
+2. **App Credentials:** copy Account ID, Client ID and Client Secret into GitHub secrets
+   `ZOOM_ACCOUNT_ID`, `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET`.
+3. **Information:** fill in the short description and the developer name and email.
+4. **Feature:** copy the **Secret Token** into Vercel as `ZOOM_WEBHOOK_SECRET` and redeploy. Then turn on
+   Event Subscriptions, Add New Event Subscription, endpoint URL `https://YOUR-VERCEL-ADDRESS/api/zoom/webhook`,
+   Add Events, Recording, **All Recordings have completed**. Click Validate, then Save.
+5. **Scopes:** add the cloud recording scopes to view recordings and recording files, and to delete meeting recordings.
+6. **Activation:** Activate your app.
+7. To test: GitHub, Actions, Import Zoom recording, Run workflow, type `check`. Its log lists last week's
+   recordings and what would happen to each.
 
 ## Keeping it running
 

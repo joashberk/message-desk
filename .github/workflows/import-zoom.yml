@@ -1,0 +1,50 @@
+name: Import Zoom recording
+
+on:
+  workflow_dispatch:
+    inputs:
+      meeting_uuid:
+        description: Zoom meeting id (or "check" to test the Zoom connection)
+        required: true
+      file_id:
+        description: Zoom recording file id
+        required: false
+        default: ''
+
+concurrency:
+  group: zoom-${{ inputs.file_id || inputs.meeting_uuid }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+      ZOOM_ACCOUNT_ID: ${{ secrets.ZOOM_ACCOUNT_ID }}
+      ZOOM_CLIENT_ID: ${{ secrets.ZOOM_CLIENT_ID }}
+      ZOOM_CLIENT_SECRET: ${{ secrets.ZOOM_CLIENT_SECRET }}
+      WORK_DIR: ${{ runner.temp }}/md
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Make room for large recordings (in the background)
+        run: nohup sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost > /dev/null 2>&1 &
+      - name: Copy the recording from Zoom to Drive
+        id: import
+        run: node worker/import-zoom.js "${{ inputs.meeting_uuid }}" "${{ inputs.file_id }}"
+      - name: Install ffmpeg
+        if: steps.import.outputs.message_id != ''
+        run: command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+      - name: Make preview and thumbnails
+        if: steps.import.outputs.message_id != ''
+        env:
+          LOCAL_ORIGINAL: ${{ steps.import.outputs.local }}
+        run: node worker/prepare.js "${{ steps.import.outputs.message_id }}"

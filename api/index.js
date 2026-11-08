@@ -4,6 +4,8 @@ import { getUser, setUserCookie, clearUserCookie, sign, verify } from '../lib/se
 import * as G from '../lib/google.js';
 import * as M from '../lib/messages.js';
 import { siteOptions } from '../lib/webflow.js';
+import * as Z from '../lib/zoom.js';
+import { dispatch } from '../lib/github.js';
 
 function send(res, status, data) {
   res.statusCode = status;
@@ -18,6 +20,15 @@ function html(res, status, body) {
   res.end(body);
 }
 function redirect(res, url) { res.statusCode = 302; res.setHeader('Location', url); res.end(); }
+
+async function readRaw(req) {
+  const chunks = [];
+  for await (const c of req) chunks.push(c);
+  if (chunks.length) return Buffer.concat(chunks).toString('utf8');
+  if (typeof req.body === 'string') return req.body;
+  if (Buffer.isBuffer(req.body)) return req.body.toString('utf8');
+  return req.body ? JSON.stringify(req.body) : '';
+}
 
 async function readBody(req) {
   if (req.body !== undefined && req.body !== null && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) return req.body;
@@ -66,6 +77,22 @@ export default async function handler(req, res) {
       return send(res, 200, { user: { email: t.email, name: t.name || '' } });
     }
     if (path === '/auth/signout' && req.method === 'POST') { clearUserCookie(req, res); return send(res, 200, { ok: true }); }
+    // Zoom says a cloud recording is ready. Must answer within 3 seconds, so the copying happens on GitHub.
+    if (path === '/zoom/webhook' && req.method === 'POST') {
+      const raw = await readRaw(req);
+      let b;
+      try { b = JSON.parse(raw); } catch (e) { return send(res, 400, { error: 'bad request' }); }
+      if (!Z.verifyWebhook(raw, req.headers)) return send(res, 401, { error: 'not signed' });
+      if (b.event === 'endpoint.url_validation') return send(res, 200, Z.validationResponse(b.payload && b.payload.plainToken));
+      if (b.event === 'recording.completed') {
+        const o = (b.payload && b.payload.object) || {};
+        const f = Z.pickFile(o.recording_files);
+        if (Z.collectionFor(o.topic) && f && (o.duration || 0) >= Z.ZOOM.minMinutes) {
+          await dispatch('import-zoom.yml', { meeting_uuid: String(o.uuid), file_id: String(f.id) });
+        }
+      }
+      return send(res, 200, { ok: true });
+    }
     // Setup check: says only whether each connection works, never any details.
     if (path === '/status' && req.method === 'GET') return send(res, 200, await status());
 
@@ -180,6 +207,7 @@ async function status() {
       const r = await fetch('https://api.vimeo.com/me?fields=uri', { headers: { Authorization: 'bearer ' + process.env.VIMEO_TOKEN, Accept: 'application/vnd.vimeo.*+json;version=3.4' } });
       return r.ok;
     }),
+    zoom: process.env.ZOOM_WEBHOOK_SECRET ? 'ok' : 'missing',
     renderJobs: await check(['GH_DISPATCH_TOKEN'], async () => {
       const r = await fetch('https://api.github.com/repos/' + CONFIG.githubRepo + '/actions/workflows/render.yml', { headers: { Authorization: 'Bearer ' + process.env.GH_DISPATCH_TOKEN, Accept: 'application/vnd.github+json', 'User-Agent': 'message-desk' } });
       return r.ok;

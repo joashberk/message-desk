@@ -362,8 +362,10 @@
     if (m.duration) bits.push(fmt(m.duration));
     var n = (m.notes || []).length;
     if (n) bits.push(n + " notes file" + (n > 1 ? "s" : ""));
-    if (cur && S.up.active) bits.push("Uploading " + upPct() + "%");
+    if (m.source === "zoom" && !m.original.uploaded) bits.push(m.importing && m.importing.failed ? "Couldn't copy from Zoom" : "Copying from Zoom" + (m.importing && m.importing.pct ? " " + m.importing.pct + "%" : ""));
+    else if (cur && S.up.active) bits.push("Uploading " + upPct() + "%");
     else if (!m.original.uploaded) bits.push("Upload paused");
+    else if (m.source === "zoom" && m.status === "editing" && !(m.preview && m.preview.proxyId)) bits.push("Getting the preview ready");
     else if (m.status === "finished") bits.push(m.render && m.render.done ? "Waiting for approval" : "Preparing");
     else if (m.render && !m.render.done && !m.render.failed) bits.push("Rendering");
     return bits.join(" · ");
@@ -371,12 +373,12 @@
   function renderUpload() {
     var el = $("#continueList"), h = "", seen = {};
     if (S.demo && S.dur > 0 && !S.published) {
-      h += card("demo", title(), "Sample recording · " + fmt(S.dur));
+      h += card("demo", title(), "Sample recording · " + fmt(S.dur), false);
     }
-    if (S.msg && !S.published) { seen[S.msg.id] = 1; h += card(S.msg.id, title(), cardSub(S.msg, true)); }
+    if (S.msg && !S.published) { seen[S.msg.id] = 1; h += card(S.msg.id, title(), cardSub(S.msg, true), S.msg.source === "zoom"); }
     S.list.forEach(function (m) {
       if (seen[m.id] || m.status === "published") return;
-      h += card(m.id, titleOf(m.d), cardSub(m, false));
+      h += card(m.id, titleOf(m.d), cardSub(m, false), m.source === "zoom");
     });
     el.innerHTML = h;
     $$("[data-cont]", el).forEach(function (b) {
@@ -388,14 +390,21 @@
       });
     });
   }
-  function card(id, t, sub) {
-    var ico = '<span class="cont-ico" aria-hidden="true"><svg class="i" viewBox="0 0 16 16"><rect x="1.75" y="3.5" width="9" height="9" rx="2"></rect><path d="m10.75 7 3.5-2v6l-3.5-2"></path></svg></span>';
+  function card(id, t, sub, zoom) {
+    var ico = zoom
+      ? '<span class="cont-ico" aria-hidden="true" title="From Zoom"><svg class="lg" style="width: 20px; height: 20px;"><use href="#lg-zoom"></use></svg></span>'
+      : '<span class="cont-ico" aria-hidden="true"><svg class="i" viewBox="0 0 16 16"><rect x="1.75" y="3.5" width="9" height="9" rx="2"></rect><path d="m10.75 7 3.5-2v6l-3.5-2"></path></svg></span>';
     return '<div class="card continue"><div style="display: flex; align-items: center; gap: 12px; min-width: 0;">' + ico + '<div style="min-width: 0;"><div>' + esc(t) + '</div><div class="muted" style="font-size: 13px;">' + esc(sub) + '</div></div></div><button class="btn primary" data-cont="' + esc(id) + '">Continue</button></div>';
   }
+  // New Zoom drafts can arrive at any time, so the list refreshes itself while it's on screen
+  var listTimer = 0;
   function refreshList() {
+    clearTimeout(listTimer);
     if (!S.user) return;
     api("GET", "/messages").then(function (j) { S.list = j.messages || []; if (S.view === "upload") renderUpload(); }, function () {});
+    listTimer = setTimeout(function () { if (S.view === "upload" && !document.hidden) refreshList(); else listTimer = 0; }, 30000);
   }
+  document.addEventListener("visibilitychange", function () { if (!document.hidden && S.view === "upload" && !listTimer) refreshList(); });
 
   /* ---------- Real uploads straight to Google Drive ---------- */
   function createOnServer(file, notes) {
@@ -557,7 +566,8 @@
   function usePreview(v) {
     var p = v.preview || {};
     if (!p.proxyId) {
-      if (!v.original.uploaded) setWaiting(S.up.active ? "The preview will appear here a few minutes after the upload finishes." : "The upload isn't finished. Open Message Desk on the computer that has the recording and drop it again to finish.");
+      if (v.source === "zoom" && !v.original.uploaded) setWaiting(v.importing && v.importing.failed ? "This recording couldn't be copied from Zoom. Ask the tech team to look at it." : "Copying the recording from Zoom. It will be ready to edit in a few minutes.");
+      else if (!v.original.uploaded) setWaiting(S.up.active ? "The preview will appear here a few minutes after the upload finishes." : "The upload isn't finished. Open Message Desk on the computer that has the recording and drop it again to finish.");
       else setWaiting(p.status === "error" ? "The preview couldn't be made. Ask the tech team to look at this post." : "Getting the preview ready. This takes a few minutes after an upload.");
       return;
     }
@@ -694,7 +704,7 @@
   /* ---------- Editor ---------- */
   function renderEditHeader() {
     $("#editTitle").textContent = title();
-    $("#editSub").textContent = S.demo ? "Sample recording" : (S.file ? S.file.name : (S.msg && S.msg.file ? S.msg.file.name : ""));
+    $("#editSub").textContent = S.demo ? "Sample recording" : (S.file ? S.file.name : (S.msg && S.msg.file ? (S.msg.source === "zoom" ? "From Zoom · " : "") + S.msg.file.name : ""));
     $("#tcDur").textContent = fmt(S.dur);
     $("#pushBtn").disabled = !S.demo && !S.dur;
     if (S.waitMsg) setWaiting(S.waitMsg);
@@ -999,7 +1009,7 @@
     if (S.demo || !S.msg || !S.user) return;
     var m = S.msg;
     var renderBusy = m.renderRequested && !(m.render && (m.render.done || m.render.failed));
-    var previewBusy = m.original.uploaded && !(m.preview && (m.preview.proxyId || m.preview.status === "error"));
+    var previewBusy = (m.original.uploaded || (m.source === "zoom" && !(m.importing && m.importing.failed))) && !(m.preview && (m.preview.proxyId || m.preview.status === "error"));
     var watching = (S.view === "details" || S.view === "review") ? renderBusy || (m.render && m.render.done && m.status === "finished" && !m.webflow) : S.view === "edit" ? previewBusy && !S.url : false;
     if (!watching) return;
     pollTimer = setTimeout(function () {
@@ -1010,6 +1020,7 @@
         mergeView(v);
         if (!S.dur && v.duration) S.dur = v.duration;
         if (!hadProxy && v.preview.proxyId && !S.url) usePreview(v);
+        else if (!hadProxy && !S.url && S.view === "edit") usePreview(v);
         updateRender();
         poll();
       }, function () { poll(); });

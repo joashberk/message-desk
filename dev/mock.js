@@ -25,7 +25,7 @@ let host = 'localhost:3000';
 
 function view(m) {
   return {
-    id: m.id, file: m.file, duration: m.duration, original: { uploaded: m.original.uploaded, sessionUrl: m.original.uploaded ? null : m.original.sessionUrl },
+    id: m.id, file: m.file, duration: m.duration, source: m.source || null, importing: m.importing || null, original: { uploaded: m.original.uploaded, sessionUrl: m.original.uploaded ? null : m.original.sessionUrl },
     notes: m.notes.map((n) => ({ name: n.name, size: n.size, type: n.type, uploaded: n.uploaded, sessionUrl: n.uploaded ? null : n.sessionUrl })),
     d: m.d, segs: m.segs, fps: m.prepare.fps || m.fps, renderSegs: m.renderSegs, renderRequested: !!m.renderRequestId, status: m.status,
     filing: m.filing, webflow: m.webflow, preview: m.prepare, render: m.render, updatedAt: m.updatedAt
@@ -104,6 +104,22 @@ export default async function mock(req, res) {
   if (path2 === '/auth/mock') { res.setHeader('Set-Cookie', 'md_session=ok; Path=/'); return send(res, 200, { ok: true }); }
   if (path2 === '/auth/signout') { res.setHeader('Set-Cookie', 'md_session=; Path=/; Max-Age=0'); return send(res, 200, { ok: true }); }
   if (!signedIn(req)) return send(res, 401, { error: 'Please sign in again.', signin: true });
+  // Pretend Zoom just finished a cloud recording (needs MOCK_ZOOM_FILE)
+  if (path2 === '/mock/zoom') {
+    const id = 'zoom' + (seq++) + 'abcdefghij';
+    const size = fs.statSync(process.env.MOCK_ZOOM_FILE).size;
+    const m = { id, source: 'zoom', importing: { pct: 0 }, file: { name: 'Hebron Gathering 2026-11-07.mp4', size, ext: 'mp4' }, duration: 0, d: { coll: 'Hebron', date: '2026-11-07', part: '', title: '', slug: '', slugEdited: false, speakers: [], tags: [], desc: '', res: '', esv: '', esa: '', jav: '', jaa: '', featured: false, hide: false, seq: '', adv: false }, segs: null, fps: null, notes: [], original: { uploaded: false }, prepare: { status: 'waiting', pct: 0 }, render: null, status: 'editing', webflow: null, filing: null };
+    msgs.set(id, m);
+    const t = setInterval(() => {
+      m.importing.pct += 20 * SPEED;
+      if (m.importing.pct >= 100) {
+        clearInterval(t); m.importing = null;
+        const token = 'z' + seq++; uploads.set(token, { file: process.env.MOCK_ZOOM_FILE, size, received: size, done: true });
+        m.original = { uploaded: true, token }; startPrepare(m);
+      }
+    }, 1000);
+    return send(res, 200, { id });
+  }
   if (path2 === '/drive-token') return send(res, 200, { access_token: 'mock', expires_at: Date.now() + 3600e3, mediaBase: '/fake-drive/' });
   if (path2 === '/options') return send(res, 200, { speakers: ['David Francis Copp', 'Teddy Kochukoshy', 'Abraham Garduza'], tags: ['Faith', 'Strategic Disconnection', 'Grace'] });
 
