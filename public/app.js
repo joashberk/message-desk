@@ -381,6 +381,7 @@
       h += card(m.id, titleOf(m.d), cardSub(m, false), m.source === "zoom");
     });
     el.innerHTML = h;
+    $$("[data-discard]", el).forEach(function (b) { b.addEventListener("click", function () { confirmDiscard(b.dataset.discard); }); });
     $$("[data-cont]", el).forEach(function (b) {
       b.addEventListener("click", function () {
         var id = b.dataset.cont;
@@ -394,14 +395,55 @@
     var ico = zoom
       ? '<span class="cont-ico" aria-hidden="true" title="From Zoom"><svg class="lg" style="width: 20px; height: 20px;"><use href="#lg-zoom"></use></svg></span>'
       : '<span class="cont-ico" aria-hidden="true"><svg class="i" viewBox="0 0 16 16"><rect x="1.75" y="3.5" width="9" height="9" rx="2"></rect><path d="m10.75 7 3.5-2v6l-3.5-2"></path></svg></span>';
-    return '<div class="card continue"><div style="display: flex; align-items: center; gap: 12px; min-width: 0;">' + ico + '<div style="min-width: 0;"><div>' + esc(t) + '</div><div class="muted" style="font-size: 13px;">' + esc(sub) + '</div></div></div><button class="btn primary" data-cont="' + esc(id) + '">Continue</button></div>';
+    return '<div class="card continue" data-card="' + esc(id) + '"><div style="display: flex; align-items: center; gap: 12px; min-width: 0;">' + ico + '<div style="min-width: 0;"><div>' + esc(t) + '</div><div class="muted" style="font-size: 13px;">' + esc(sub) + '</div></div></div><div style="display: flex; align-items: center; gap: 14px;"><button class="link" style="color: var(--muted); font-size: 13px;" data-discard="' + esc(id) + '">Discard</button><button class="btn primary" data-cont="' + esc(id) + '">Continue</button></div></div>';
   }
   // New Zoom drafts can arrive at any time, so the list refreshes itself while it's on screen
   var listTimer = 0;
+  // Discard: asks first, right in the card
+  function confirmDiscard(id) {
+    var c = $('[data-card="' + id + '"]'); if (!c) return;
+    var cur = S.msg && S.msg.id === id;
+    if (cur && S.up.active) { $("#dropErr").textContent = "Wait for the upload to finish, or close the page to stop it, before discarding."; $("#dropErr").hidden = false; return; }
+    c.innerHTML = '<div style="min-width: 0; flex: 1 1 280px;"><div>Discard this post?</div><div class="muted" style="font-size: 13px;">' +
+      (id === "demo" ? "The sample edit will be cleared." : "The recording and edits go to the Drive trash for 30 days, and its Vimeo video and website draft are removed. Files already in the media library stay.") +
+      '</div></div><div style="display: flex; gap: 8px;"><button class="btn" data-no>Cancel</button><button class="btn danger" data-yes>Discard</button></div>';
+    $("[data-no]", c).onclick = function () { renderUpload(); };
+    $("[data-yes]", c).onclick = function () {
+      if (id === "demo") { resetEdit(); S.d = null; S.demo = false; renderUpload(); return; }
+      $("[data-yes]", c).disabled = true; $("[data-yes]", c).textContent = "Discarding…"; $("[data-no]", c).disabled = true;
+      api("DELETE", "/messages/" + id).then(function (r) {
+        if (cur) { resetEdit(); S.d = null; S.notes = []; }
+        S.list = S.list.filter(function (m) { return m.id !== id; });
+        renderUpload();
+        if (r && r.vimeoLeft) { $("#dropErr").textContent = "Discarded. Its Vimeo video couldn't be removed automatically, so delete it in Vimeo."; $("#dropErr").hidden = false; }
+      }, function (e) { renderUpload(); $("#dropErr").textContent = msgOf(e); $("#dropErr").hidden = false; });
+    };
+  }
+
+  // Vimeo storage and upload allowance
+  var quotaWarn = "";
+  function size(b) { return b >= 1e12 ? (b / 1e12).toFixed(b >= 1e13 ? 0 : 1) + " TB" : b >= 1e9 ? (b / 1e9).toFixed(b >= 1e10 ? 0 : 1) + " GB" : Math.round(b / 1e6) + " MB"; }
+  function loadQuota() {
+    api("GET", "/vimeo-quota").then(function (q) {
+      var el = $("#vimeoQuota"), rows = [];
+      var row = function (label, x, resets) {
+        var pct = Math.min(100, Math.round(x.used / x.max * 100)), low = x.free < 3e9;
+        return '<div class="quota-row"><div style="display: flex; justify-content: space-between; gap: 10px;"><span>' + label + '</span><span class="muted num">' + size(x.used) + " of " + size(x.max) + " used" + (resets ? " · resets " + new Date(resets).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "") + '</span></div><div class="quota-bar' + (low ? " low" : "") + '"><i style="width:' + pct + '%"></i></div></div>';
+      };
+      if (q.storage) rows.push(row("Storage", q.storage));
+      if (q.periodic) rows.push(row("Uploads this week", q.periodic, q.periodic.resets));
+      var low = (q.storage && q.storage.free < 3e9) || (q.periodic && q.periodic.free < 3e9);
+      quotaWarn = low ? "Vimeo is almost out of " + (q.periodic && q.periodic.free < 3e9 ? "this week's upload allowance" : "space") + ", so the render may not finish. Free up space in Vimeo or wait for the allowance to reset." : "";
+      el.hidden = !rows.length;
+      el.innerHTML = '<span class="card-h" style="font-size: 13px;"><svg class="lg lg-vimeo" aria-hidden="true"><use href="#lg-vimeo"></use></svg>Vimeo</span>' + rows.join("");
+    }, function () {});
+  }
+
   function refreshList() {
     clearTimeout(listTimer);
     if (!S.user) return;
     api("GET", "/messages").then(function (j) { S.list = j.messages || []; if (S.view === "upload") renderUpload(); }, function () {});
+    loadQuota();
     listTimer = setTimeout(function () { if (S.view === "upload" && !document.hidden) refreshList(); else listTimer = 0; }, 30000);
   }
   document.addEventListener("visibilitychange", function () { if (!document.hidden && S.view === "upload" && !listTimer) refreshList(); });
@@ -999,7 +1041,8 @@
     $(".bar i", pill).style.width = (st.bar != null ? st.bar : p) + "%";
     $(".lbl", pill).textContent = done ? "Video ready" : (st.label || stageName(p) + " · " + Math.floor(p) + "%");
     var failText = st.failed ? (S.renderErr || "The render didn't finish. Go back to the editor and press Push to Render again. If it keeps happening, tell the tech team.") : "";
-    var db = $("#detBanner"); db.hidden = !failText; db.textContent = failText;
+    var warn = failText || (!S.demo && !done ? quotaWarn : "");
+    var db = $("#detBanner"); db.hidden = !warn; db.textContent = warn;
     var rb = $("#revBanner"); if (!S.pubErr) { rb.hidden = !failText; rb.textContent = failText; }
     if (S.view === "review") renderReviewStatus();
   }
@@ -1035,7 +1078,7 @@
       date: dt.getFullYear() + "-" + pad(dt.getMonth() + 1) + "-" + pad(dt.getDate()),
       part: "", title: "", titleEdited: false, slug: "", slugEdited: false,
       speakers: [], tags: [], desc: "", res: "", esv: "", esa: "", jav: "", jaa: "",
-      featured: false, hide: false, seq: "", adv: false
+      featured: false, hide: false, seq: "", adv: false, web: true, thumb: null
     };
   }
   function autoTitleOf(d) {
@@ -1153,7 +1196,13 @@
     $("#fFeat").checked = d.featured; $("#fHide").checked = d.hide; $("#fSeq").value = d.seq;
     $("#fSlug").value = slug();
     $("#advBtn").setAttribute("aria-expanded", String(d.adv)); $("#advBody").hidden = !d.adv;
-    $("#sundayOpts").hidden = d.coll !== "Sunday";
+    $("#fWeb").checked = d.web !== false;
+    $("#sundayOpts").hidden = d.coll !== "Sunday" || d.web === false;
+    $("#slugField").hidden = d.web === false;
+    $("#detIntro").textContent = d.web === false
+      ? "Finish files this in Google Drive and keeps it on Vimeo only. Nothing goes on the website."
+      : "Finish stages this as a draft on the website. Nothing goes live until someone approves it.";
+    renderThumbs();
     $("#detErr").hidden = true;
     $("#finishBtn").disabled = false;
     spk.render(); tags.render(); renderNotes(); syncTitle(); updateRender();
@@ -1168,6 +1217,68 @@
     $(p[0]).addEventListener("input", function () { S.d[p[1]] = $(p[0]).value; scheduleSave(); });
   });
   $("#fFeat").addEventListener("change", function () { S.d.featured = $("#fFeat").checked; scheduleSave(); });
+  $("#fWeb").addEventListener("change", function () { S.d.web = $("#fWeb").checked; renderDetails(); scheduleSave(); });
+
+  // Vimeo thumbnail: one of 8 frames from the kept parts, or an uploaded image
+  function thumbChoices() {
+    var segs = S.rSegs || S.segs, keeps = segs ? segs.filter(function (x) { return x.t === "keep"; }) : [{ a: 0, b: S.dur }];
+    var total = keeps.reduce(function (a, k) { return a + k.b - k.a; }, 0), out = [];
+    if (!total || !S.thumbs.length) return out;
+    for (var i = 0; i < 8; i++) {
+      var want = (i + 0.5) / 8 * total, t = 0;
+      for (var j = 0; j < keeps.length; j++) { var len = keeps[j].b - keeps[j].a; if (want <= len) { t = keeps[j].a + want; break; } want -= len; }
+      out.push({ t: Math.round(t * 10) / 10, img: S.thumbs[Math.min(S.thumbs.length - 1, Math.floor(t / S.dur * S.thumbs.length))], at: t - removedBefore(t, segs) });
+    }
+    return out;
+  }
+  function renderThumbs() {
+    var g = $("#thumbGrid"), th = S.d.thumb, h = "";
+    var choices = thumbChoices();
+    choices.forEach(function (c, i) {
+      var on = th && th.kind === "frame" && Math.abs(th.t - c.t) < 0.6;
+      h += '<button type="button" class="thumb-opt' + (on ? " on" : "") + '" data-ti="' + i + '" aria-pressed="' + on + '" aria-label="Use the frame at ' + fmt(c.at) + '"' + (c.img ? ' style="background-image:url(' + c.img + ')"' : "") + "><span>" + fmt(c.at) + "</span></button>";
+    });
+    if (th && th.kind === "image") {
+      var src = S.thumbLocal || "/media/" + th.fileId + "?type=image%2Fjpeg";
+      h += '<button type="button" class="thumb-opt on" data-timg aria-pressed="true" aria-label="Uploaded image" style="background-image:url(' + src + ')"><span>Uploaded</span></button>';
+    }
+    g.innerHTML = h;
+    g.hidden = !h;
+    $$("[data-ti]", g).forEach(function (b) {
+      b.addEventListener("click", function () {
+        var c = choices[+b.dataset.ti], cur = S.d.thumb;
+        S.d.thumb = cur && cur.kind === "frame" && Math.abs(cur.t - c.t) < 0.6 ? null : { kind: "frame", t: c.t };
+        saveThumb();
+      });
+    });
+    var ti = $("[data-timg]", g); if (ti) ti.addEventListener("click", function () { S.d.thumb = null; S.thumbLocal = null; saveThumb(); });
+    var applied = S.msg && S.msg.render && S.msg.render.thumbApplied;
+    $("#thumbNote").textContent = !choices.length && !th ? "Frames to choose from appear once the preview is ready. Until then Vimeo picks one." :
+      !th ? "Pick a frame or upload an image. Otherwise Vimeo picks one." :
+      applied ? "Set on Vimeo." : "It will be set on Vimeo once the video is there.";
+  }
+  function saveThumb() {
+    renderThumbs();
+    if (S.demo || !S.msg) return;
+    flushSave().then(function () { return api("POST", "/messages/" + S.msg.id + "/thumb", { thumb: S.d.thumb }); })
+      .then(function (v) { S.msg.render = v.render; lastSaved = ""; renderThumbs(); }, function (e) { showDetErr(msgOf(e)); });
+  }
+  $("#thumbUpload").addEventListener("click", function () { $("#thumbIn").click(); });
+  $("#thumbIn").addEventListener("change", function () {
+    var f = $("#thumbIn").files[0]; $("#thumbIn").value = "";
+    if (!f) return;
+    if (!/^image\/(jpeg|png)$/.test(f.type)) { showDetErr("Use a JPG or PNG image."); return; }
+    S.thumbLocal = URL.createObjectURL(f);
+    if (S.demo || !S.msg) { S.d.thumb = { kind: "image", fileId: "local-image-only" }; renderThumbs(); return; }
+    $("#thumbNote").textContent = "Uploading the image…";
+    api("POST", "/messages/" + S.msg.id + "/thumb-upload", { name: f.name, size: f.size, type: f.type }).then(function (j) {
+      return putChunk(j.sessionUrl, f, 0, f.size, function () {});
+    }).then(function (r) {
+      if (!(r.status === 200 || r.status === 201) || !r.json || !r.json.id) throw new Error("upload");
+      S.d.thumb = { kind: "image", fileId: r.json.id };
+      saveThumb();
+    }).catch(function (e) { S.thumbLocal = null; renderThumbs(); showDetErr(e && e.user ? e.message : "The image didn't upload. Try again."); });
+  });
   $("#fHide").addEventListener("change", function () { S.d.hide = $("#fHide").checked; scheduleSave(); });
   $("#advBtn").addEventListener("click", function () { S.d.adv = !S.d.adv; $("#advBtn").setAttribute("aria-expanded", String(S.d.adv)); $("#advBody").hidden = !S.d.adv; });
   $("#detBack").addEventListener("click", function () { flushSave(); show("edit"); });
@@ -1242,7 +1353,11 @@
   function renderReview() {
     var d = S.d;
     $("#revTitle").textContent = title();
-    $("#rvColl").textContent = d.coll + " Messages";
+    var web = d.web !== false;
+    $("#rvColl").textContent = web ? d.coll + " Messages" : "Vimeo only";
+    $("#rvCollIco use").setAttribute("href", web ? "#lg-webflow" : "#lg-vimeo");
+    $("#rvCollIco").setAttribute("class", "lg " + (web ? "lg-webflow" : "lg-vimeo"));
+    $("#publishBtn").innerHTML = web ? '<svg class="lg" aria-hidden="true"><use href="#lg-webflow"></use></svg>Publish to Webflow' : '<svg class="lg" aria-hidden="true"><use href="#lg-vimeo"></use></svg>Mark as done';
     $("#rvName").textContent = title();
     var dp = d.date.split("-");
     var rows = [
@@ -1251,9 +1366,10 @@
       ["Topic tags", d.tags.join(", ") || "None"],
       ["Length", fmt(keptDur(S.rSegs))],
       ["Notes", S.notes.length ? S.notes.map(function (f) { return f.name; }).join(", ") : "None"],
-      ["Page", "/" + COLL_SLUG[d.coll] + "/" + slug()]
+      web ? ["Page", "/" + COLL_SLUG[d.coll] + "/" + slug()] : ["Website", "Not posted"],
+      ["Thumbnail", !d.thumb ? "Chosen by Vimeo" : d.thumb.kind === "image" ? "Uploaded image" : "Frame at " + fmt(d.thumb.t - removedBefore(d.thumb.t, S.rSegs))]
     ];
-    if (d.coll === "Sunday") rows.push(["Sunday options", [d.featured ? "Featured" : "", d.hide ? "Hidden from Sunday page" : "", d.seq ? "Order " + d.seq : ""].filter(Boolean).join(", ") || "Standard"]);
+    if (web && d.coll === "Sunday") rows.push(["Sunday options", [d.featured ? "Featured" : "", d.hide ? "Hidden from Sunday page" : "", d.seq ? "Order " + d.seq : ""].filter(Boolean).join(", ") || "Standard"]);
     $("#rvRows").innerHTML = rows.map(function (r) { return '<div class="kv"><span class="muted">' + esc(r[0]) + "</span><span>" + esc(r[1]) + "</span></div>"; }).join("");
     var rem = S.rSegs ? S.rSegs.filter(function (s) { return s.t === "remove"; }) : [];
     $("#rvCuts").innerHTML = rem.length ? rem.map(function (s) { return '<div class="kv"><span>Removed ' + fmt(s.b - s.a) + '</span><span class="muted">' + fmt(s.a) + " – " + fmt(s.b) + "</span></div>"; }).join("") : '<p class="fine" style="font-size:13px">Nothing removed. The full recording is used.</p>';
@@ -1274,8 +1390,14 @@
   $("#openEditor").addEventListener("click", function () { show("edit"); });
   function published(liveUrl) {
     S.published = true;
-    $("#doneTitle").textContent = "Published to " + S.d.coll + " Messages";
-    $("#doneSub").textContent = title() + " is live at " + (liveUrl || ("sentlifecenter.com/" + COLL_SLUG[S.d.coll] + "/" + slug()));
+    if (S.d.web === false) {
+      var vl = S.msg && S.msg.render && S.msg.render.vimeoLink;
+      $("#doneTitle").textContent = "Saved to Vimeo";
+      $("#doneSub").textContent = title() + (vl ? " is on Vimeo at " + vl.replace(/^https?:\/\//, "") : " is on Vimeo") + ". It wasn't posted to the website.";
+    } else {
+      $("#doneTitle").textContent = "Published to " + S.d.coll + " Messages";
+      $("#doneSub").textContent = title() + " is live at " + (liveUrl || ("sentlifecenter.com/" + COLL_SLUG[S.d.coll] + "/" + slug()));
+    }
     $("#doneFine").hidden = !S.demo;
     show("done");
   }

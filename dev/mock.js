@@ -54,7 +54,7 @@ function startRender(m) {
   const tick = setInterval(() => {
     if (m.renderRequestId !== req) return clearInterval(tick);
     m.render.pct = Math.min(100, m.render.pct + 4 * SPEED);
-    if (m.render.pct >= 100) { m.render = { status: 'done', pct: 100, done: true, vimeo: true, audio: true }; clearInterval(tick); }
+    if (m.render.pct >= 100) { m.render = { status: 'done', pct: 100, done: true, vimeo: true, audio: true, vimeoLink: 'https://vimeo.com/123456789', thumbApplied: !!(m.d && m.d.thumb) }; clearInterval(tick); }
   }, 500);
 }
 
@@ -120,6 +120,7 @@ export default async function mock(req, res) {
     }, 1000);
     return send(res, 200, { id });
   }
+  if (path2 === '/vimeo-quota') return send(res, 200, { storage: { used: 1.2e12, max: 5e12, free: 3.8e12 }, periodic: process.env.MOCK_LOW ? { used: 4.9e9, max: 5e9, free: 1e8, resets: '2026-11-15T00:00:00Z' } : null });
   if (path2 === '/drive-token') return send(res, 200, { access_token: 'mock', expires_at: Date.now() + 3600e3, mediaBase: '/fake-drive/' });
   if (path2 === '/options') return send(res, 200, { speakers: ['David Francis Copp', 'Teddy Kochukoshy', 'Abraham Garduza'], tags: ['Faith', 'Strategic Disconnection', 'Grace'] });
 
@@ -140,6 +141,9 @@ export default async function mock(req, res) {
     if (!m) return send(res, 404, { error: 'That post could not be found.' });
     const a = parts[2];
     if (!a && req.method === 'GET') return send(res, 200, view(m));
+    if (!a && req.method === 'DELETE') { msgs.delete(m.id); return send(res, 200, { vimeoLeft: false }); }
+    if (a === 'thumb-upload') return send(res, 200, { sessionUrl: newUpload(m, 'thumb', 0, b.size) });
+    if (a === 'thumb') { m.d.thumb = b.thumb; return send(res, 200, view(m)); }
     if (!a && req.method === 'PUT') { if (b.d) m.d = b.d; if ('segs' in b) m.segs = b.segs; if (b.fps) m.fps = b.fps; if (b.duration && !m.duration) m.duration = b.duration; m.updatedAt = Date.now(); return send(res, 200, { ok: true }); }
     if (a === 'upload-offset') {
       const t = b.kind === 'original' ? m.original : m.notes[b.idx];

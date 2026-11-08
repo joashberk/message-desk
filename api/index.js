@@ -6,6 +6,7 @@ import * as M from '../lib/messages.js';
 import { siteOptions } from '../lib/webflow.js';
 import * as Z from '../lib/zoom.js';
 import { dispatch } from '../lib/github.js';
+import { quota as vimeoQuota } from '../lib/vimeo.js';
 
 function send(res, status, data) {
   res.statusCode = status;
@@ -148,6 +149,10 @@ export default async function handler(req, res) {
       try { return send(res, 200, await siteOptions()); } catch (e) { console.error('options', e.message); return send(res, 200, { speakers: [], tags: [] }); }
     }
 
+    if (path === '/vimeo-quota' && req.method === 'GET') {
+      try { return send(res, 200, await vimeoQuota()); } catch (e) { console.error('quota', e.message); return send(res, 200, { storage: null, periodic: null }); }
+    }
+
     // ----- messages -----
     if (parts[0] === 'messages') {
       const id = parts[1];
@@ -166,6 +171,9 @@ export default async function handler(req, res) {
         return send(res, 200, M.view(m));
       }
       if (!action && req.method === 'PUT') { await M.saveChanges(m, b); return send(res, 200, { ok: true }); }
+      if (!action && req.method === 'DELETE') return send(res, 200, await M.discard(m));
+      if (action === 'thumb-upload') return send(res, 200, { sessionUrl: await M.thumbUploadSession(m, b, origin(req)) });
+      if (action === 'thumb') { await M.setThumb(m, b.thumb); return send(res, 200, M.view(m)); }
       if (action === 'upload-offset') return send(res, 200, await M.uploadOffset(m, b, origin(req)));
       if (action === 'uploaded') { await M.markUploaded(m, b); return send(res, 200, M.view(m)); }
       if (action === 'notes' && req.method === 'POST') { const added = await M.addNotes(m, b.files, origin(req)); return send(res, 200, { added, message: M.view(m) }); }
