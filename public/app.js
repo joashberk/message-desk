@@ -977,6 +977,7 @@
     if (m.renderRequested && !m.original.uploaded) return { pct: 0, done: false, label: S.up.active ? "Uploading · " + upPct() + "%" : "Waiting for the upload", bar: S.up.active ? upPct() : 0 };
     if (!r) return { pct: 0, done: false, label: m.renderRequested ? "Starting" : "Not rendered yet", idle: !m.renderRequested };
     if (r.failed) return { pct: r.pct, done: false, failed: true, label: "Render stopped" };
+    if (r.status === "queued") return { pct: 0, done: false, label: "Starting" };
     return { pct: r.done ? 100 : r.pct, done: r.done, label: null };
   }
   function updateRender() {
