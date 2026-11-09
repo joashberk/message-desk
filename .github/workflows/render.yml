@@ -1,4 +1,5 @@
 name: Render message
+run-name: Render ${{ inputs.message_id }} ${{ inputs.request_id }}${{ inputs.dry_run == 'true' && ' practice' || '' }}
 
 # Splits the kept parts of the recording into pieces that separate machines compress at the same time,
 # makes the sound alongside, then joins everything and sends it to Vimeo and Drive.

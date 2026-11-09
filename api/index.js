@@ -178,6 +178,7 @@ export default async function handler(req, res) {
       if (action === 'uploaded') { await M.markUploaded(m, b); return send(res, 200, M.view(m)); }
       if (action === 'notes' && req.method === 'POST') { const added = await M.addNotes(m, b.files, origin(req)); return send(res, 200, { added, message: M.view(m) }); }
       if (action === 'notes' && req.method === 'DELETE') { await M.removeNote(m, parts[3]); return send(res, 200, M.view(m)); }
+      if (action === 'cancel-render') { await M.cancelRender(m); return send(res, 200, M.view(m)); }
       if (action === 'render') { await M.requestRender(m, b); return send(res, 200, M.view(m)); }
       if (action === 'finish') { await M.finish(m, b); return send(res, 200, M.view(m)); }
       if (action === 'publish') { await M.publish(m); return send(res, 200, M.view(m)); }

@@ -153,9 +153,15 @@ async function piece() {
 async function audio() {
   await begin(false);
   const info = JSON.parse(process.env.INFO);
-  const src = await getOriginal(() => {});
+  const marker = dry ? null : await G.writeJson(m.id, 'piece-sound.json', {});
+  let pct = 0;
+  const mark = dry ? async () => {} : throttled(() => G.updateFile(marker, { appProperties: { md: 'piece', req: requestId, i: 'sound', pct: String(pct) } }), 10000);
+  await mark(true);
+  const src = await getOriginal((at, size) => { pct = Math.floor(at / size * 40); mark(); });
+  const kept = keepRanges(m.edit.renderSegs, info.duration).reduce((t, [a, b]) => t + b - a, 0);
   const { args } = buildRenderArgs({ input: src, outAudio: path.join(work, 'final.m4a'), outMp3: path.join(work, 'final.mp3'), segs: m.edit.renderSegs, dur: info.duration, fps: info.fps, parts: 'audio' });
-  await runFfmpeg(args);
+  await runFfmpeg(args, (t) => { pct = 40 + Math.floor(Math.min(1, t / kept) * 60); mark(); });
+  pct = 100; await mark(true);
   log('sound done');
 }
 
@@ -231,7 +237,9 @@ async function deliver(outMp4, outMp3) {
     return { mp3, mp4 };
   })();
 
-  await tusUpload(link, outMp4, (at, total) => { state.pct = 50 + Math.floor(at / total * 25); save(); });
+  let lastCheck = Date.now();
+  const checkStill = async () => { if (Date.now() - lastCheck > 60000) { lastCheck = Date.now(); await stillCurrent(); } };
+  await tusUpload(link, outMp4, (at, total) => { state.pct = 50 + Math.floor(at / total * 25); save(); checkStill(); });
   state.pct = 75; state.stage = 'Vimeo processing';
   await save(true);
 
@@ -244,6 +252,7 @@ async function deliver(outMp4, outMp3) {
     if (ts === 'error' || v.status === 'transcode_starting_error' || v.status === 'uploading_error') throw new Error('Vimeo could not process the video');
     if (Date.now() - t0 > 3 * 3600 * 1000) throw new Error('Vimeo took too long to process the video');
     state.pct = Math.min(89, 75 + Math.floor((Date.now() - t0) / 60000));
+    await checkStill();
     await save();
     await sleep(15000);
   }
