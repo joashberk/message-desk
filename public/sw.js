@@ -13,6 +13,36 @@ function token(force) {
   }).then(function (j) { tok = j; return j.access_token; });
 }
 
+// A notification arrives empty; ask Message Desk what it's about, then show it.
+self.addEventListener("push", function (e) {
+  e.waitUntil(self.registration.pushManager.getSubscription().then(function (sub) {
+    return fetch("/api/notify/latest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endpoint: sub ? sub.endpoint : "" }) })
+      .then(function (r) { return r.json(); }).catch(function () { return {}; });
+  }).then(function (n) {
+    return self.registration.showNotification(n.title || "Message Desk", {
+      body: n.body || "A video is ready to publish.",
+      icon: "/icon-192.png",
+      badge: "/icon-192.png",
+      data: { url: n.url || "/" },
+      tag: n.url || "message-desk"
+    });
+  }));
+});
+
+// Tapping it opens Message Desk on that post
+self.addEventListener("notificationclick", function (e) {
+  e.notification.close();
+  var url = new URL((e.notification.data && e.notification.data.url) || "/", self.location.origin).href;
+  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(function (list) {
+    for (var i = 0; i < list.length; i++) {
+      if (new URL(list[i].url).origin === self.location.origin && "focus" in list[i]) {
+        return list[i].focus().then(function (c) { return c.navigate ? c.navigate(url) : c; });
+      }
+    }
+    return self.clients.openWindow(url);
+  }));
+});
+
 self.addEventListener("fetch", function (e) {
   var u = new URL(e.request.url);
   if (u.origin !== self.location.origin || u.pathname.indexOf("/media/") !== 0) return;

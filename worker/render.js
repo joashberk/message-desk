@@ -9,6 +9,7 @@ import * as G from '../lib/google.js';
 import * as M from '../lib/messages.js';
 import * as N from '../lib/naming.js';
 import { vimeo, videoIdFromUri } from '../lib/vimeo.js';
+import { notify } from '../lib/notify.js';
 import { buildRenderArgs, planChunks, keepRanges } from '../lib/cut.js';
 import { downloadToFile, uploadFromFile, probe, ffmpeg, throttled, log, freeDisk } from './common.js';
 
@@ -265,6 +266,21 @@ async function deliver(outMp4, outMp3) {
   Object.assign(state, { status: 'done', pct: 100, stage: 'Ready', finishedAt: new Date().toISOString() });
   await save(true);
   log('render done');
+  await tell(m, true);
+}
+
+// Phone and computer notifications for everyone who turned them on
+async function tell(post, ok) {
+  if (dry) return;
+  try {
+    const fresh = await M.load(post.id);
+    const d = fresh.edit.d, name = N.title(d);
+    const web = d.web !== false, finished = fresh.edit.status === 'finished';
+    const note = ok
+      ? { title: web ? 'Ready to publish' : 'Ready on Vimeo', body: name + ' is ready. Tap to ' + (web ? 'review and publish it.' : 'check it.'), url: '/#/post/' + post.id + '/' + (finished ? 'review' : 'details') }
+      : { title: 'Render stopped', body: name + " didn't finish. Tap to open it and push to render again.", url: '/#/post/' + post.id + '/edit' };
+    log('notified', await notify(note), 'devices');
+  } catch (e) { log('could not send notifications'); }
 }
 
 async function failed() {
@@ -272,6 +288,7 @@ async function failed() {
   if (!fresh || fresh.edit.renderRequestId !== requestId) return;
   const s = { ...(fresh.render || {}), requestId, status: 'error', error: 'One of the render machines stopped' };
   await G.writeJson(fresh.id, 'render.json', s, fresh.ids.render);
+  await tell(fresh, false);
 }
 
 async function main() {
@@ -288,6 +305,8 @@ main().catch(async (err) => {
     if (fresh.edit.renderRequestId === requestId) {
       const s = { ...(state || fresh.render || {}), requestId, status: 'error', error: String(err.message).slice(0, 500) };
       await G.writeJson(fresh.id, 'render.json', s, fresh.ids.render);
+      // The several-machine render reports problems from its own "failed" step
+      if (mode === 'all') await tell(fresh, false);
     }
   } catch (e) { console.error('could not record the error', e.message); }
   process.exit(1);

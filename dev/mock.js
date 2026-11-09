@@ -129,6 +129,8 @@ export default async function mock(req, res) {
     }, 1000);
     return send(res, 200, { id });
   }
+  if (path2 === '/notify/status') return send(res, 200, { on: false });
+  if (path2 === '/notify/key') return send(res, 200, { publicKey: 'BPlaceholderPlaceholderPlaceholderPlaceholderPlaceholderPlaceholderPlaceholderPlaceholder' });
   if (path2 === '/vimeo-quota') return send(res, 200, { storage: { used: 1.2e12, max: 5e12, free: 3.8e12 }, periodic: process.env.MOCK_LOW ? { used: 4.9e9, max: 5e9, free: 1e8, resets: '2026-11-15T00:00:00Z' } : null });
   if (path2 === '/drive-token') return send(res, 200, { access_token: 'mock', expires_at: Date.now() + 3600e3, mediaBase: '/fake-drive/' });
   if (path2 === '/options') return send(res, 200, { speakers: ['David Francis Copp', 'Teddy Kochukoshy', 'Abraham Garduza'], tags: ['Faith', 'Strategic Disconnection', 'Grace'] });

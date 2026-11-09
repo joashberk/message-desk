@@ -6,6 +6,7 @@ import * as M from '../lib/messages.js';
 import { siteOptions } from '../lib/webflow.js';
 import * as Z from '../lib/zoom.js';
 import { dispatch } from '../lib/github.js';
+import * as Notify from '../lib/notify.js';
 import { quota as vimeoQuota } from '../lib/vimeo.js';
 
 function send(res, status, data) {
@@ -78,6 +79,42 @@ export default async function handler(req, res) {
       return send(res, 200, { user: { email: t.email, name: t.name || '' } });
     }
     if (path === '/auth/signout' && req.method === 'POST') { clearUserCookie(req, res); return send(res, 200, { ok: true }); }
+
+    // Sign-in by page redirect: used by the Home Screen app on iPhone, where pop-up sign-in doesn't work
+    if (path === '/auth/start' && req.method === 'GET') {
+      const state = sign({ purpose: 'signin', back: String(url.searchParams.get('back') || '').slice(0, 200), exp: Date.now() + 15 * 60 * 1000 });
+      const p = new URLSearchParams({
+        client_id: env('GOOGLE_CLIENT_ID'), redirect_uri: origin(req) + '/api/auth/callback', response_type: 'code',
+        scope: 'openid email profile', prompt: 'select_account', state
+      });
+      return redirect(res, 'https://accounts.google.com/o/oauth2/v2/auth?' + p);
+    }
+    if (path === '/auth/callback' && req.method === 'GET') {
+      const st = verify(url.searchParams.get('state'));
+      if (!st || st.purpose !== 'signin' || !url.searchParams.get('code')) return redirect(res, '/');
+      const r = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        body: new URLSearchParams({
+          code: url.searchParams.get('code'), client_id: env('GOOGLE_CLIENT_ID'), client_secret: env('GOOGLE_CLIENT_SECRET'),
+          redirect_uri: origin(req) + '/api/auth/callback', grant_type: 'authorization_code'
+        })
+      });
+      const t = await r.json().catch(() => ({}));
+      let who = {};
+      try { who = JSON.parse(Buffer.from(t.id_token.split('.')[1], 'base64url').toString()); } catch (e) { /* none */ }
+      const email = String(who.email || '').toLowerCase();
+      if (!r.ok || !who.email_verified || !allowedEmails().includes(email)) {
+        return html(res, 403, page('Not on the team list', '<p>' + esc(who.email || 'That account') + " isn't on the Message Desk team list. Ask the tech lead to add you.</p>"));
+      }
+      setUserCookie(req, res, { email, name: who.name || '' });
+      return redirect(res, '/' + (/^#\/post\/[\w-]+\/\w+$/.test(st.back) ? st.back : ''));
+    }
+
+    // A device that was woken by a notification asks what it's about (it proves itself with its own address)
+    if (path === '/notify/latest' && req.method === 'POST') {
+      const b = await readBody(req);
+      return send(res, 200, (await Notify.latestFor(String(b.endpoint || ''))) || {});
+    }
     // Zoom says a cloud recording is ready. Must answer within 3 seconds, so the copying happens on GitHub.
     if (path === '/zoom/webhook' && req.method === 'POST') {
       const raw = await readRaw(req);
@@ -149,6 +186,17 @@ export default async function handler(req, res) {
       try { return send(res, 200, await siteOptions()); } catch (e) { console.error('options', e.message); return send(res, 200, { speakers: [], tags: [] }); }
     }
 
+    if (parts[0] === 'notify') {
+      const b = req.method === 'POST' ? await readBody(req) : {};
+      if (parts[1] === 'key') return send(res, 200, { publicKey: await Notify.publicKey() });
+      if (parts[1] === 'subscribe') { await Notify.subscribe(b.subscription, user.email); return send(res, 200, { ok: true }); }
+      if (parts[1] === 'unsubscribe') { await Notify.unsubscribe(String(b.endpoint || '')); return send(res, 200, { ok: true }); }
+      if (parts[1] === 'status') return send(res, 200, { on: await Notify.isSubscribed(String(b.endpoint || '')) });
+      if (parts[1] === 'test') {
+        const n = await Notify.notify({ title: 'Message Desk', body: 'Notifications are working on this device.', url: '/' }, user.email);
+        return send(res, 200, { sent: n });
+      }
+    }
     if (path === '/vimeo-quota' && req.method === 'GET') {
       try { return send(res, 200, await vimeoQuota()); } catch (e) { console.error('quota', e.message); return send(res, 200, { storage: null, periodic: null }); }
     }

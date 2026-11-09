@@ -244,8 +244,13 @@
     S.view = "signin";
     $("#signinErr").hidden = !err; $("#signinErr").textContent = err || "";
   }
+  function standalone() { return navigator.standalone === true || matchMedia("(display-mode: standalone)").matches; }
   function renderGoogleButton(clientId) {
     gRendered = true;
+    if (standalone() && clientId) {
+      var a = $("#gbtnApp"); a.hidden = false; a.href = "/api/auth/start?back=" + encodeURIComponent(location.hash || "");
+      return;
+    }
     if (!clientId) { $("#signinSub").textContent = "Message Desk isn't set up yet. Ask the tech lead to finish setup."; return; }
     var s = document.createElement("script");
     s.src = "https://accounts.google.com/gsi/client"; s.async = true;
@@ -451,11 +456,69 @@
     }, function () {});
   }
 
+  // Notifications: a one-time switch per device
+  var notifyOn = null;
+  function isApple() { return /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); }
+  function canPush() { return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window; }
+  function b64ToBytes(s) { s = s.replace(/-/g, "+").replace(/_/g, "/"); var r = atob(s + "===".slice((s.length + 3) % 4)); var a = new Uint8Array(r.length); for (var i = 0; i < r.length; i++) a[i] = r.charCodeAt(i); return a; }
+  function currentSub() {
+    if (!canPush()) return Promise.resolve(null);
+    return serviceWorker().then(function () { return navigator.serviceWorker.ready; }).then(function (reg) { return reg.pushManager.getSubscription(); }).catch(function () { return null; });
+  }
+  function drawNotify(msg) {
+    var el = $("#notifyCard");
+    var head = '<span class="card-h" style="font-size: 13px;"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11.5V7a4 4 0 0 1 8 0v4.5l1 1.5H3z"></path><path d="M6.5 14a1.6 1.6 0 0 0 3 0"></path></svg>Notifications</span>';
+    var body;
+    if (isApple() && !standalone()) {
+      body = '<p class="muted" style="font-size: 13px;">To get a notification on this iPhone when a video is ready, add Message Desk to your Home Screen: tap <b style="font-weight: 600;">Share</b>, then <b style="font-weight: 600;">Add to Home Screen</b>. Then open Message Desk from the new icon and turn notifications on there.</p>';
+    } else if (!canPush()) {
+      body = '<p class="muted" style="font-size: 13px;">This browser can\'t show notifications. Try Safari or Chrome.</p>';
+    } else if (Notification.permission === "denied") {
+      body = '<p class="muted" style="font-size: 13px;">Notifications are turned off for Message Desk on this device. Turn them on in Settings, then come back here.</p>';
+    } else if (notifyOn) {
+      body = '<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;"><span class="muted" style="font-size: 13px; flex: 1 1 200px;">On for this device. You\'ll get a notification when a video is ready to publish.</span><button class="btn" data-ntest>Send a test</button><button class="link" style="color: var(--muted); font-size: 13px;" data-noff>Turn off</button></div>';
+    } else {
+      body = '<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;"><span class="muted" style="font-size: 13px; flex: 1 1 200px;">Get a notification on this device when a video is ready to publish, so you don\'t have to wait at the computer.</span><button class="btn primary" data-non>Turn on</button></div>';
+    }
+    el.innerHTML = head + body + (msg ? '<p class="fine">' + esc(msg) + "</p>" : "");
+    el.hidden = false;
+    var on = $("[data-non]", el), off = $("[data-noff]", el), t = $("[data-ntest]", el);
+    if (on) on.onclick = function () { on.disabled = true; turnOnNotify().then(function () { drawNotify(); }, function (e) { drawNotify(e && e.user ? e.message : "Notifications couldn't be turned on. Try again."); }); };
+    if (off) off.onclick = function () { turnOffNotify().then(function () { drawNotify(); }); };
+    if (t) t.onclick = function () { t.disabled = true; api("POST", "/notify/test").then(function (r) { drawNotify(r.sent ? "Test sent. It should arrive in a few seconds." : "The test didn't go through. Turn notifications off and on again."); }, function (e) { drawNotify(msgOf(e)); }); };
+  }
+  function turnOnNotify() {
+    return Notification.requestPermission().then(function (perm) {
+      if (perm !== "granted") throw { user: true, message: "Notifications weren't allowed on this device." };
+      return Promise.all([api("GET", "/notify/key"), serviceWorker().then(function () { return navigator.serviceWorker.ready; })]);
+    }).then(function (x) {
+      return x[1].pushManager.getSubscription().then(function (old) {
+        return old || x[1].pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(x[0].publicKey) });
+      });
+    }).then(function (sub) {
+      return api("POST", "/notify/subscribe", { subscription: sub.toJSON() });
+    }).then(function () { notifyOn = true; });
+  }
+  function turnOffNotify() {
+    return currentSub().then(function (sub) {
+      if (!sub) return;
+      return api("POST", "/notify/unsubscribe", { endpoint: sub.endpoint }).catch(function () {}).then(function () { return sub.unsubscribe(); });
+    }).then(function () { notifyOn = false; });
+  }
+  function loadNotify() {
+    if (S.demo) return;
+    currentSub().then(function (sub) {
+      if (!sub) { notifyOn = false; drawNotify(); return; }
+      api("POST", "/notify/status", { endpoint: sub.endpoint }).then(function (r) { notifyOn = !!r.on; drawNotify(); }, function () { notifyOn = false; drawNotify(); });
+    });
+  }
+
   function refreshList() {
     clearTimeout(listTimer);
     if (!S.user) return;
     api("GET", "/messages").then(function (j) { S.list = j.messages || []; if (S.view === "upload") renderUpload(); }, function () {});
     loadQuota();
+    if (notifyOn === null) loadNotify();
     listTimer = setTimeout(function () { if (S.view === "upload" && !document.hidden) refreshList(); else listTimer = 0; }, 30000);
   }
   document.addEventListener("visibilitychange", function () { if (!document.hidden && S.view === "upload" && !listTimer) refreshList(); });

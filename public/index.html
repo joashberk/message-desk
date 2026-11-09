@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Message Desk</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Message Desk">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#ffffff">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%231c1c1e'/%3E%3Cpath d='M9 6.5v11l9-5.5z' fill='%23fff'/%3E%3C/svg%3E">
 <style>
 /* Layout: enterprise editing tool. Neutral workspace, white surfaces separated by soft shadow rings, one blue primary action per screen. Red = Remove, Blue = Keep. SF Pro (system) at regular weight throughout. */
@@ -353,6 +360,7 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
         <h1 style="font-size: 20px; letter-spacing: -0.015em;">Sign in to Message Desk</h1>
         <p class="muted" id="signinSub">Use the Google account you use with the tech team.</p>
         <div class="gbtn" id="gbtn"></div>
+        <a class="btn primary" id="gbtnApp" href="/api/auth/start" hidden>Sign in with Google</a>
         <p class="fine" id="signinErr" style="color: var(--red);" hidden></p>
       </div>
     </div>
@@ -379,6 +387,7 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
       </div>
       <div id="continueList" style="display: flex; flex-direction: column; gap: 12px;"></div>
       <div class="card side-card" id="vimeoQuota" hidden></div>
+      <div class="card side-card" id="notifyCard" hidden></div>
       <p class="fine" style="text-align: center; text-wrap: balance;"><span class="inl"><svg class="lg" aria-hidden="true"><use href="#lg-drive"></use></svg>Recordings are saved to the SENT Life Center Google Drive.</span> <span class="inl"><svg class="lg lg-webflow" aria-hidden="true"><use href="#lg-webflow"></use></svg>Nothing goes on the website until someone publishes it.</span></p>
     </div>
   </section>
