@@ -153,6 +153,18 @@ export default async function handler(req, res) {
       try { return send(res, 200, await vimeoQuota()); } catch (e) { console.error('quota', e.message); return send(res, 200, { storage: null, periodic: null }); }
     }
 
+    if (parts[0] === 'restore' && req.method === 'GET') {
+      if (!parts[1]) {
+        const list = await M.listDeleted();
+        return html(res, 200, page('Recently deleted', list.length
+          ? '<p>Deleted posts stay recoverable for 30 days. Choose one to bring it back.</p>' + list.map((x) => '<p><a href="/api/restore/' + esc(x.id) + '">' + esc(x.name) + '</a></p>').join('')
+          : '<p>Nothing has been deleted recently.</p>'));
+      }
+      if (!/^[\w-]{10,}$/.test(parts[1])) return redirect(res, '/');
+      const m = await M.restore(parts[1]);
+      return redirect(res, '/#/post/' + m.id + '/details');
+    }
+
     // ----- messages -----
     if (parts[0] === 'messages') {
       const id = parts[1];

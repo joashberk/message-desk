@@ -213,8 +213,18 @@
   vid.addEventListener("play", function () { if (!S.demo) estimateFps(); });
 
   /* ---------- Views ---------- */
+  var POST_VIEWS = { edit: 1, details: 1, review: 1 };
+  function setAddress(v) {
+    var want = S.msg && !S.demo && POST_VIEWS[v] ? "#/post/" + S.msg.id + "/" + v : "";
+    if (location.hash !== want) { try { history.replaceState(null, "", location.pathname + location.search + want); } catch (e) {} }
+  }
+  function readAddress() {
+    var m = /^#\/post\/([\w-]{10,})\/(edit|details|review)$/.exec(location.hash);
+    return m ? { id: m[1], view: m[2] } : null;
+  }
   function show(v) {
     S.view = v;
+    if (v !== "signin") setAddress(v);
     $$(".view").forEach(function (el) { el.hidden = el.id !== "v-" + v; });
     if (v !== "edit") { edP.pause(); $("#pop").hidden = true; }
     if (v !== "review") rvP.pause();
@@ -251,7 +261,9 @@
     api("POST", "/auth/google", { credential: resp.credential }).then(function (j) { S.user = j.user; afterSignin(); }, function (e) { showSignin(msgOf(e)); });
   }
   function afterSignin() {
+    var where = readAddress();
     show("upload");
+    if (where) openMessage(where.id, null, [], where.view);
     api("GET", "/options").then(function (o) {
       SPEAKERS.length = 0; TAGS.length = 0;
       (o.speakers || []).forEach(function (x) { SPEAKERS.push(x); });
@@ -458,6 +470,7 @@
     banner("");
     api("POST", "/messages", body).then(function (m) {
       S.msg = m;
+      setAddress(S.view);
       var map = lsGet("files", {}); map[fileKey(file)] = m.id; lsSet("files", map);
       (notes || []).forEach(function (f, i) { S.noteFiles[i] = f; });
       startUploads(file);
@@ -565,7 +578,7 @@
     if (v.fps) S.fps = v.fps;
     S.notes = v.notes;
   }
-  function openMessage(id, localFile, extraNotes) {
+  function openMessage(id, localFile, extraNotes, view) {
     $("#dropErr").hidden = true;
     $("#dropTitle").textContent = "Opening…";
     api("GET", "/messages/" + id).then(function (v) {
@@ -578,7 +591,9 @@
       var map = lsGet("files", {});
       if (localFile) { map[fileKey(localFile)] = v.id; lsSet("files", map); }
       var go = function () {
-        show(v.status === "finished" ? "review" : "edit");
+        // Review needs Finish first; anything else opens where it was asked for
+        var want = view === "review" && v.status !== "finished" && v.status !== "published" ? "details" : view;
+        show(want || (v.status === "finished" ? "review" : "edit"));
         if (localFile && !v.original.uploaded) startUploads(localFile);
         if (extraNotes && extraNotes.length) addNoteFiles(extraNotes);
         updateUpPill();
