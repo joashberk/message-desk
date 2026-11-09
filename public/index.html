@@ -297,6 +297,25 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
 .quota-bar { height: 6px; border-radius: 6px; background: var(--sunken); overflow: hidden; }
 .quota-bar i { display: block; height: 100%; background: var(--blue); border-radius: 6px; }
 .quota-bar.low i { background: var(--red); }
+.coll { padding: 0; }
+.coll-h { width: 100%; display: flex; align-items: center; gap: 12px; padding: 16px 18px; border: 0; background: transparent; text-align: left; font-size: 13px; border-radius: 12px; }
+.coll-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.coll-sum { flex: none; max-width: 48%; color: var(--muted); font-size: 12px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.coll-h .chev { flex: none; color: var(--muted); transition: transform .2s var(--ease); }
+.coll-h[aria-expanded="true"] .chev { transform: rotate(180deg); }
+.coll-b { padding: 0 18px 18px; display: flex; flex-direction: column; gap: 10px; }
+.rv-title { font-size: 18px; letter-spacing: -0.015em; line-height: 1.3; text-wrap: pretty; color: var(--ink); }
+.prog { display: flex; flex-direction: column; gap: 8px; }
+.prog-h { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; padding: 0; border: 0; background: transparent; font-size: 13px; text-align: left; color: var(--ink); }
+.prog-h .chev { color: var(--muted); transition: transform .2s var(--ease); }
+.prog-h[aria-expanded="true"] .chev { transform: rotate(180deg); }
+.machines { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)) 10px 28px; gap: 4px; height: 30px; align-items: stretch; }
+.machines .mc { position: relative; overflow: hidden; border-radius: 4px; background: var(--sunken); }
+.machines .mc i { position: absolute; left: 0; right: 0; bottom: 0; background: var(--blue); transition: height .6s var(--ease); }
+.machines .mc.done i { background: var(--ok); }
+.machines .mc.snd i { background: var(--muted); }
+.machines .mc.snd.done i { background: var(--ok); }
+.del-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 13px; }
 .gbtn { min-height: 44px; display: flex; justify-content: center; margin-top: 6px; }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -493,6 +512,7 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
       </div>
       <div class="tb-right">
         <span class="pill" id="detPill"><span class="bar"><i></i></span><span class="lbl">Rendering</span></span>
+        <button class="link" id="detCancel" style="font-size: 13px;" hidden>Cancel</button>
         <button class="btn primary" id="finishBtn">Finish</button>
       </div>
     </header>
@@ -502,6 +522,7 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
         <h1 class="h1">Post details</h1>
         <p class="muted" id="detIntro">Finish stages this as a draft on the website. Nothing goes live until someone approves it.</p>
       </div>
+      <div class="card side-card" id="detMachines" hidden></div>
       <div class="card fsec">
         <div class="field">
           <span class="lbl">Collection</span>
@@ -569,6 +590,7 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
         </div>
       </div>
       <p id="detErr" style="color: var(--red); font-size: 13px;" hidden></p>
+      <div class="del-row" data-delrow><button class="link" style="color: var(--red);" data-delpost>Delete this post</button></div>
     </div>
   </section>
 
@@ -579,6 +601,7 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
         <button class="icon-btn" id="revBack" aria-label="Back to details"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5 5.5 8l4.5 4.5"></path></svg></button>
         <span class="tb-title" id="revTitle"></span>
         <span class="pill" id="revPill"></span>
+        <button class="link" id="revCancel" style="font-size: 13px;" hidden>Cancel</button>
       </div>
       <div class="tb-right">
         <button class="btn primary" id="publishBtn" disabled><svg class="lg" aria-hidden="true"><use href="#lg-webflow"></use></svg>Publish to Webflow</button>
@@ -600,25 +623,31 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
           <span class="num" style="font-size: 13px;"><span id="rNow">0:00</span> <span class="muted">/ <span id="rLen">0:00</span></span></span>
         </div>
         <p class="fine">This is the final edit. Removed sections are skipped.</p>
-        <div class="card side-card">
-          <div style="display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap;"><span class="card-h"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="4.5" cy="4.5" r="2"></circle><circle cx="4.5" cy="11.5" r="2"></circle><path d="M6.2 5.6 13.5 12M6.2 10.4 13.5 4"></path></svg>What was cut</span><button class="link" id="openEditor">Return to editor</button></div>
-          <div id="rvCuts"></div>
+        <div class="card coll">
+          <button class="coll-h" aria-expanded="false" aria-controls="cutBody"><span class="coll-t"><span class="card-h"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="4.5" cy="4.5" r="2"></circle><circle cx="4.5" cy="11.5" r="2"></circle><path d="M6.2 5.6 13.5 12M6.2 10.4 13.5 4"></path></svg>What was cut</span></span><span class="coll-sum" id="cutSum"></span><svg class="i chev" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 6.5 3.5 3.5 3.5-3.5"></path></svg></button>
+          <div class="coll-b" id="cutBody" hidden>
+            <div id="rvCuts"></div>
+            <div><button class="link" id="openEditor">Return to editor</button></div>
+          </div>
         </div>
       </div>
       <div class="rv-side">
-        <div class="card side-card">
-          <span class="muted card-h" style="font-size: 12px; gap: 6px;"><svg class="lg lg-webflow" id="rvCollIco" aria-hidden="true"><use href="#lg-webflow"></use></svg><span id="rvColl"></span></span>
-          <h2 style="font-size: 18px; letter-spacing: -0.015em; line-height: 1.3;" id="rvName"></h2>
-          <div id="rvRows"></div>
+        <div class="card coll">
+          <button class="coll-h" aria-expanded="false" aria-controls="infoBody"><span class="coll-t"><span class="muted card-h" style="font-size: 12px; gap: 6px;"><svg class="lg lg-webflow" id="rvCollIco" aria-hidden="true"><use href="#lg-webflow"></use></svg><span id="rvColl"></span></span><span class="rv-title" id="rvName"></span></span><svg class="i chev" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 6.5 3.5 3.5 3.5-3.5"></path></svg></button>
+          <div class="coll-b" id="infoBody" hidden><div id="rvRows"></div></div>
         </div>
-        <div class="card side-card">
-          <span class="card-h" style="font-size: 13px;"><svg class="lg" aria-hidden="true"><use href="#lg-drive"></use></svg>Saved to Google Drive</span>
-          <div class="tree" id="driveTree"></div>
+        <div class="card coll">
+          <button class="coll-h" aria-expanded="false" aria-controls="readyBody"><span class="coll-t"><span class="card-h"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.5 4 6l2.5-2.5M2.5 10.5 4 12l2.5-2.5M8.5 5h5M8.5 11h5"></path></svg>Ready to publish</span></span><span class="coll-sum" id="readySum"></span><svg class="i chev" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 6.5 3.5 3.5 3.5-3.5"></path></svg></button>
+          <div class="coll-b" id="readyBody" hidden>
+            <div id="rvMachines" hidden></div>
+            <div id="rvChecks" style="display: flex; flex-direction: column; gap: 8px;"></div>
+          </div>
         </div>
-        <div class="card side-card">
-          <span class="card-h" style="font-size: 13px;"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.5 4 6l2.5-2.5M2.5 10.5 4 12l2.5-2.5M8.5 5h5M8.5 11h5"></path></svg>Ready to publish</span>
-          <div id="rvChecks" style="display: flex; flex-direction: column; gap: 8px;"></div>
+        <div class="card coll">
+          <button class="coll-h" aria-expanded="false" aria-controls="driveBody"><span class="coll-t"><span class="card-h"><svg class="lg" aria-hidden="true"><use href="#lg-drive"></use></svg>Saved to Google Drive</span></span><span class="coll-sum" id="driveSum"></span><svg class="i chev" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 6.5 3.5 3.5 3.5-3.5"></path></svg></button>
+          <div class="coll-b" id="driveBody" hidden><div class="tree" id="driveTree"></div></div>
         </div>
+        <div class="del-row" data-delrow><button class="link" style="color: var(--red);" data-delpost>Delete this post</button></div>
       </div>
     </div>
   </section>

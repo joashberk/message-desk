@@ -50,9 +50,18 @@ function startPrepare(m) {
 
 function startRender(m) {
   const req = m.renderRequestId;
-  m.render = { status: 'running', pct: 0, done: false, failed: false };
+  const n = 10;
+  m.render = { status: 'running', pct: 5, done: false, failed: false, machines: { pieces: Array(n).fill(0), sound: 0 } };
   const tick = setInterval(() => {
     if (m.renderRequestId !== req) return clearInterval(tick);
+    const mc = m.render.machines;
+    if (mc && m.render.pct < 50) {
+      mc.pieces = mc.pieces.map((p, i) => Math.min(100, p + (6 + (i % 3) * 3) * SPEED));
+      mc.sound = Math.min(100, mc.sound + 8 * SPEED);
+      m.render.pct = Math.max(m.render.pct, 10 + Math.floor(mc.pieces.reduce((a, b) => a + b, 0) / (n * 100) * 40));
+      if (mc.pieces.every((p) => p >= 100) && mc.sound >= 100) { m.render.pct = 50; m.render.machines = null; }
+      return;
+    }
     m.render.pct = Math.min(100, m.render.pct + 4 * SPEED);
     if (m.render.pct >= 100) { m.render = { status: 'done', pct: 100, done: true, vimeo: true, audio: true, vimeoLink: 'https://vimeo.com/123456789', thumbApplied: !!(m.d && m.d.thumb) }; clearInterval(tick); }
   }, 500);
@@ -164,6 +173,7 @@ export default async function mock(req, res) {
       return send(res, 200, { added, message: view(m) });
     }
     if (a === 'notes' && req.method === 'DELETE') { m.notes.splice(+parts[3], 1); if (m.filing) file(m); return send(res, 200, view(m)); }
+    if (a === 'cancel-render') { m.renderRequestId = null; m.render = null; m.renderSegs = null; return send(res, 200, view(m)); }
     if (a === 'render') {
       m.segs = b.segs; m.renderSegs = b.segs; if (b.d) m.d = b.d; m.renderRequestId = Date.now(); m.render = null;
       if (m.original.uploaded) startRender(m);

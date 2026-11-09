@@ -405,7 +405,7 @@
     var cur = S.msg && S.msg.id === id;
     if (cur && S.up.active) { $("#dropErr").textContent = "Wait for the upload to finish, or close the page to stop it, before discarding."; $("#dropErr").hidden = false; return; }
     c.innerHTML = '<div style="min-width: 0; flex: 1 1 280px;"><div>Discard this post?</div><div class="muted" style="font-size: 13px;">' +
-      (id === "demo" ? "The sample edit will be cleared." : "The recording and edits go to the Drive trash for 30 days, and its Vimeo video and website draft are removed. Files already in the media library stay.") +
+      (id === "demo" ? "The sample edit will be cleared." : "Its recording, final video, audio and notes go to the Drive trash for 30 days, its Vimeo video is deleted and its website draft is removed.") +
       '</div></div><div style="display: flex; gap: 8px;"><button class="btn" data-no>Cancel</button><button class="btn danger" data-yes>Discard</button></div>';
     $("[data-no]", c).onclick = function () { renderUpload(); };
     $("[data-yes]", c).onclick = function () {
@@ -1044,8 +1044,76 @@
     var warn = failText || (!S.demo && !done ? quotaWarn : "");
     var db = $("#detBanner"); db.hidden = !warn; db.textContent = warn;
     var rb = $("#revBanner"); if (!S.pubErr) { rb.hidden = !failText; rb.textContent = failText; }
+    drawProgress();
     if (S.view === "review") renderReviewStatus();
   }
+  // One plain progress bar. Tapping it shows the parts being prepared at the same time.
+  var progOpen = false;
+  function progressHtml(st) {
+    var r = S.msg && S.msg.render, mc = r && r.machines;
+    var pct = st.done ? 100 : Math.max(0, Math.min(100, Math.floor(st.pct || 0)));
+    var label = st.done ? "Video ready" : st.failed ? "Render stopped" : (st.label || stageName(pct));
+    var chev = mc ? '<svg class="i chev" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 6.5 3.5 3.5 3.5-3.5"></path></svg>' : "";
+    var h = '<div class="prog">' + (mc ? '<button type="button" class="prog-h" data-prog aria-expanded="' + progOpen + '">' : '<div class="prog-h">') +
+      '<span>' + esc(label) + '</span><span class="muted num" style="display: inline-flex; align-items: center; gap: 6px;">' + (st.failed ? "" : pct + "%") + chev + '</span>' + (mc ? "</button>" : "</div>") +
+      '<div class="quota-bar' + (st.failed ? " low" : "") + '"><i style="width:' + pct + '%"></i></div>';
+    if (mc && progOpen) {
+      var bars = mc.pieces.map(function (p) { return '<span class="mc' + (p >= 100 ? " done" : "") + '"><i style="height:' + p + '%"></i></span>'; }).join("");
+      var done = mc.pieces.filter(function (p) { return p >= 100; }).length;
+      h += '<div class="machines" style="--n:' + mc.pieces.length + '" aria-hidden="true">' + bars + '<span></span><span class="mc snd' + (mc.sound >= 100 ? " done" : "") + '"><i style="height:' + mc.sound + '%"></i></span></div>' +
+        '<p class="fine">Prepared in ' + mc.pieces.length + ' parts at the same time, plus the sound on the right. ' + done + ' of ' + mc.pieces.length + ' parts done.</p>';
+    }
+    return h + "</div>";
+  }
+  function drawProgress() {
+    var st = renderState(), m = S.msg;
+    var active = !S.demo && m && m.renderRequested && !st.idle;
+    var running = active && !st.done && !st.failed;
+    [["#detMachines", running || (active && st.failed)], ["#rvMachines", active && !st.done]].forEach(function (x) {
+      var el = $(x[0]); el.hidden = !x[1];
+      if (x[1]) { el.innerHTML = progressHtml(st); var b = $("[data-prog]", el); if (b) b.onclick = function () { progOpen = !progOpen; drawProgress(); }; }
+    });
+    $("#detCancel").hidden = !running; $("#revCancel").hidden = !running;
+  }
+  function cancelRender() {
+    if (!S.msg || !confirm("Stop this render? The post goes back to how it was before you pressed Push to Render.")) return;
+    api("POST", "/messages/" + S.msg.id + "/cancel-render").then(function (v) { mergeView(v); S.rSegs = v.renderSegs; S.renderErr = ""; updateRender(); if (S.view === "review") renderReview(); }, function (e) { showDetErr(msgOf(e)); });
+  }
+  $("#detCancel").addEventListener("click", cancelRender);
+  $("#revCancel").addEventListener("click", cancelRender);
+
+  // Delete this post: everything it made goes (Drive trash for 30 days, Vimeo video, website draft)
+  $$("[data-delrow]").forEach(function (row) {
+    var draw = function () {
+      row.innerHTML = '<button class="link" style="color: var(--red);" data-delpost>Delete this post</button>';
+      $("[data-delpost]", row).onclick = function () {
+        if (S.demo) { resetEdit(); S.d = null; S.demo = false; show("upload"); return; }
+        row.innerHTML = '<span style="flex: 1 1 260px;">Delete this post? Its recording, final video, audio and notes go to the Drive trash for 30 days, its Vimeo video is deleted and its website draft is removed.</span><button class="btn" data-no>Keep it</button><button class="btn danger" data-yes>Delete</button>';
+        $("[data-no]", row).onclick = draw;
+        $("[data-yes]", row).onclick = function () {
+          var b = $("[data-yes]", row); b.disabled = true; b.textContent = "Deleting…"; $("[data-no]", row).disabled = true;
+          var id = S.msg && S.msg.id;
+          api("DELETE", "/messages/" + id).then(function (r) {
+            resetEdit(); S.d = null; S.notes = [];
+            S.list = S.list.filter(function (m) { return m.id !== id; });
+            draw(); show("upload");
+            if (r && r.vimeoLeft) { $("#dropErr").textContent = "Deleted. Its Vimeo video couldn't be removed automatically, so delete it in Vimeo."; $("#dropErr").hidden = false; }
+          }, function (e) { draw(); showDetErr(msgOf(e)); });
+        };
+      };
+    };
+    draw();
+  });
+
+  // Review sections open and close
+  $$(".coll-h").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var open = b.getAttribute("aria-expanded") !== "true";
+      b.setAttribute("aria-expanded", String(open));
+      $("#" + b.getAttribute("aria-controls")).hidden = !open;
+    });
+  });
+
   var pollTimer = 0;
   function poll() {
     clearTimeout(pollTimer);
@@ -1311,6 +1379,7 @@
       [S.notes.length > 0, S.notes.length ? "Notes attached" : "No notes file (optional)"]
     ];
     $("#rvChecks").innerHTML = checks.map(function (c) { return '<div class="chk' + (c[0] ? " done" : "") + '"><i></i>' + esc(c[1]) + "</div>"; }).join("");
+    $("#readySum").textContent = done ? "All set" : st.failed ? "Render stopped" : (st.label && !S.demo ? st.label : stageName(p) + " · " + Math.floor(p) + "%");
   }
   // Drive filing: 01_SLC Media Library > [year] > [collection folder] > ##_[TYPE]_YYYY_MM_DD > Original + Final edit
   var DRIVE_COLL = {
@@ -1372,6 +1441,9 @@
     if (web && d.coll === "Sunday") rows.push(["Sunday options", [d.featured ? "Featured" : "", d.hide ? "Hidden from Sunday page" : "", d.seq ? "Order " + d.seq : ""].filter(Boolean).join(", ") || "Standard"]);
     $("#rvRows").innerHTML = rows.map(function (r) { return '<div class="kv"><span class="muted">' + esc(r[0]) + "</span><span>" + esc(r[1]) + "</span></div>"; }).join("");
     var rem = S.rSegs ? S.rSegs.filter(function (s) { return s.t === "remove"; }) : [];
+    var removed = rem.reduce(function (a, x) { return a + x.b - x.a; }, 0);
+    $("#cutSum").textContent = rem.length ? rem.length + (rem.length > 1 ? " cuts · " : " cut · ") + fmt(removed) + " removed" : "Nothing removed";
+    $("#driveSum").textContent = "In the " + d.coll + " folder";
     $("#rvCuts").innerHTML = rem.length ? rem.map(function (s) { return '<div class="kv"><span>Removed ' + fmt(s.b - s.a) + '</span><span class="muted">' + fmt(s.a) + " – " + fmt(s.b) + "</span></div>"; }).join("") : '<p class="fine" style="font-size:13px">Nothing removed. The full recording is used.</p>';
     $("#rBar").innerHTML = S.dur ? rem.map(function (s) { return '<div class="rm" style="left:' + P(s.a) + "%;width:" + P(s.b - s.a) + '%"></div>'; }).join("") + '<div class="ph"></div>' : '<div class="ph"></div>';
     $("#rLen").textContent = fmt(keptDur(S.rSegs));
