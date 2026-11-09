@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { buildRenderArgs, keepRanges, frameWindow, standardFps, parseRate } from '../lib/cut.js';
+import { buildRenderArgs, keepRanges, frameWindow, standardFps, parseRate, planChunks } from '../lib/cut.js';
 
 const hasFfmpeg = (() => { try { execFileSync('ffmpeg', ['-version']); return true; } catch (e) { return false; } })();
 
@@ -97,5 +97,35 @@ test('60 fps footage comes out at 30 fps, still cut on exact frames', { skip: !h
   execFileSync('ffmpeg', ['-v', 'error', ...args]);
   const frames = probeFrames(outMp4);
   assert.equal(frames.length, 10, '20 source frames at 60 fps become 10 at 30 fps');
-  assert.ok(frames[0] >= 10 && frames[0] <= 11 && frames[9] >= 28 && frames[9] <= 29, 'nothing from the removed parts: ' + frames.join(','));
+  assert.deepEqual(frames, [10, 12, 14, 16, 18, 20, 22, 24, 26, 28], 'exactly every other frame');
+});
+
+test('pieces compressed on separate machines join into exactly the one-machine result', { skip: !hasFfmpeg }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdcut-'));
+  const src = path.join(dir, 'src.mp4');
+  execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=black:s=128x72:r=60:d=1,geq=lum=mod(N*4\\,256):cb=128:cr=128',
+    '-f', 'lavfi', '-i', 'sine=d=1:sample_rate=48000', '-c:v', 'libx264', '-qp', '0', '-g', '15', '-pix_fmt', 'yuv444p', '-c:a', 'pcm_s16le', '-shortest', src.replace('.mp4', '.mov')]);
+  const input = src.replace('.mp4', '.mov');
+  const F = (n) => n / 60;
+  const segs = [{ a: 0, b: F(5), t: 'remove' }, { a: F(5), b: F(25), t: 'keep' }, { a: F(25), b: F(31), t: 'remove' }, { a: F(31), b: 1, t: 'keep' }];
+  // one machine
+  const one = path.join(dir, 'one.mp4');
+  execFileSync('ffmpeg', ['-v', 'error', ...buildRenderArgs({ input, outMp4: one, segs, dur: 1, fps: 60 }).args]);
+  // several machines: tiny pieces so the test covers splits inside and across kept parts
+  const chunks = planChunks(segs, 1, 60, { target: 0.15, max: 10 });
+  assert.ok(chunks.length >= 3, 'split into several pieces');
+  const list = path.join(dir, 'list.txt');
+  fs.writeFileSync(list, chunks.map((c, i) => {
+    const out = path.join(dir, 'c' + i + '.mp4');
+    execFileSync('ffmpeg', ['-v', 'error', ...buildRenderArgs({ input, outMp4: out, segs: c, dur: 1, fps: 60, parts: 'video' }).args]);
+    return "file '" + out + "'";
+  }).join('\n'));
+  const audio = path.join(dir, 'a.m4a'), mp3 = path.join(dir, 'a.mp3');
+  execFileSync('ffmpeg', ['-v', 'error', ...buildRenderArgs({ input, outAudio: audio, outMp3: mp3, segs, dur: 1, fps: 60, parts: 'audio' }).args]);
+  const joined = path.join(dir, 'joined.mp4');
+  execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', list, '-i', audio, '-map', '0:v', '-map', '1:a', '-c', 'copy', '-movflags', '+faststart', joined]);
+  assert.deepEqual(probeFrames(joined), probeFrames(one));
+  const d = (f, s) => parseFloat(execFileSync('ffprobe', ['-v', 'error', '-select_streams', s, '-show_entries', 'stream=duration', '-of', 'csv=p=0', f], { encoding: 'utf8' }));
+  assert.ok(Math.abs(d(joined, 'v:0') - d(joined, 'a:0')) < 0.05, 'sound and picture end together');
+  assert.ok(fs.statSync(mp3).size > 1000);
 });

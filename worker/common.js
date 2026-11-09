@@ -79,8 +79,8 @@ export async function uploadFromFile({ path, parentId, name, mimeType, fileId, o
   } finally { fs.closeSync(fd); }
 }
 
-export function probe(file) {
-  const j = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', file], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }));
+export function probe(file, extra = []) {
+  const j = JSON.parse(execFileSync('ffprobe', ['-v', 'error', ...extra, '-print_format', 'json', '-show_format', '-show_streams', file], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }));
   const v = j.streams.find((s) => s.codec_type === 'video');
   const a = j.streams.find((s) => s.codec_type === 'audio');
   if (!v) throw new Error('The recording has no video');
