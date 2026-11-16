@@ -180,13 +180,15 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 .zoom .icon-btn { width: 28px; height: 28px; border-radius: 7px; }
 .zoom .lvl { min-width: 40px; text-align: center; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .track-scroll { margin-top: 4px; overflow-x: auto; overflow-y: hidden; border-radius: 6px; scrollbar-width: thin; overscroll-behavior-x: contain; }
-.track-inner { position: relative; width: 100%; height: 96px; cursor: text; touch-action: none; user-select: none; -webkit-user-select: none; }
+.track-inner { position: relative; width: 100%; height: 110px; cursor: text; touch-action: none; user-select: none; -webkit-user-select: none; }
 .ruler { position: absolute; left: 0; right: 0; top: 0; height: 24px; overflow: hidden; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .ruler .maj { position: absolute; bottom: 0; height: 24px; padding-left: 5px; border-left: 1px solid var(--field); white-space: nowrap; line-height: 16px; }
 .ruler .min { position: absolute; bottom: 0; height: 5px; border-left: 1px solid var(--field); }
-.film { position: absolute; left: 0; right: 0; top: 26px; height: 64px; overflow: hidden; border-radius: 6px; background: var(--film); box-shadow: var(--img-edge); }
-.tile { position: absolute; top: 0; height: 64px; background-color: var(--film); background-position: center; background-size: cover; box-shadow: inset -1px 0 0 rgba(0, 0, 0, .55); }
-.ovl { position: absolute; left: 0; right: 0; top: 26px; height: 64px; pointer-events: none; }
+.film { position: absolute; left: 0; right: 0; top: 26px; height: 52px; overflow: hidden; border-radius: 6px 6px 0 0; background: var(--film); box-shadow: var(--img-edge); }
+.wave { position: absolute; top: 78px; height: 26px; left: 0; display: block; background: #121318; border-radius: 0 0 6px 6px; pointer-events: none; }
+.wave-bg { position: absolute; left: 0; right: 0; top: 78px; height: 26px; background: #121318; border-radius: 0 0 6px 6px; box-shadow: var(--img-edge); }
+.tile { position: absolute; top: 0; height: 52px; background-color: var(--film); background-position: center; background-size: cover; box-shadow: inset -1px 0 0 rgba(0, 0, 0, .55); }
+.ovl { position: absolute; left: 0; right: 0; top: 26px; height: 78px; pointer-events: none; }
 .seg { position: absolute; top: 0; bottom: 0; border-radius: 4px; overflow: hidden; transition: background-color .15s ease-out; }
 .seg.keep { background: var(--keep-fill); border: 1.5px solid var(--keep-line); }
 .seg.remove { background: var(--remove-fill); border: 1.5px solid var(--red); }
@@ -404,7 +406,7 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
       <div class="tb-right">
         <span class="pill" id="upPill" hidden><span class="bar"><i></i></span><span class="lbl"></span></span>
         <button class="icon-btn" id="panelBtn" aria-label="Side panel" aria-pressed="false" title="Side panel"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2.75" width="12" height="10.5" rx="2"></rect><path d="M10 2.75v10.5"></path></svg></button>
-        <button class="btn primary" id="pushBtn">Push to Render</button>
+        <button class="btn primary" id="pushBtn">Add details</button>
       </div>
     </header>
     <div class="banner" id="sentBack" hidden></div>
@@ -452,6 +454,8 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
             <div class="track-inner" id="tInner">
               <div class="ruler" id="ruler"></div>
               <div class="film" id="film"></div>
+              <div class="wave-bg"></div>
+              <canvas class="wave" id="wave" aria-hidden="true"></canvas>
               <div class="ovl" id="ovl"></div>
               <div class="playhead" id="ph"></div>
             </div>
@@ -522,14 +526,14 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
       <div class="tb-right">
         <span class="pill" id="detPill"><span class="bar"><i></i></span><span class="lbl">Rendering</span></span>
         <button class="link" id="detCancel" style="font-size: 13px;" hidden>Cancel</button>
-        <button class="btn primary" id="finishBtn">Finish</button>
+        <button class="btn primary" id="finishBtn">Save &amp; review</button>
       </div>
     </header>
     <div class="banner" id="detBanner" hidden></div>
     <div class="form-wrap enter">
       <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 4px;">
         <h1 class="h1">Post details</h1>
-        <p class="muted" id="detIntro">Finish stages this as a draft on the website. Nothing goes live until someone approves it.</p>
+        <p class="muted" id="detIntro">Save &amp; review stages this as a draft on the website. Nothing goes live until someone publishes it.</p>
       </div>
       <div class="card side-card" id="detMachines" hidden></div>
       <div class="card fsec">

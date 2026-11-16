@@ -278,7 +278,7 @@ async function tell(post, ok) {
     const web = d.web !== false, finished = fresh.edit.status === 'finished';
     const note = ok
       ? { title: web ? 'Ready to publish' : 'Ready on Vimeo', body: name + ' is ready. Tap to ' + (web ? 'review and publish it.' : 'check it.'), url: '/#/post/' + post.id + '/' + (finished ? 'review' : 'details') }
-      : { title: 'Render stopped', body: name + " didn't finish. Tap to open it and push to render again.", url: '/#/post/' + post.id + '/edit' };
+      : { title: 'Render stopped', body: name + " didn't finish. Tap to open it and try again.", url: '/#/post/' + post.id + '/edit' };
     log('notified', await notify(note), 'devices');
   } catch (e) { log('could not send notifications'); }
 }

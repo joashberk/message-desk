@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import * as N from '../lib/naming.js';
+import { makeWaveform } from '../worker/common.js';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'md-mock-'));
 const msgs = new Map();
@@ -42,8 +43,10 @@ function startPrepare(m) {
       const n = 48;
       execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', src, '-vf', 'fps=' + n + '/' + dur + ',scale=160:90:force_original_aspect_ratio=increase,crop=160:90,tile=10x5', '-frames:v', '1', thumbs]);
       m.duration = m.duration || dur;
-      m.prepare = { status: 'done', pct: 100, proxyId: 'p-' + m.id, proxySize: fs.statSync(src).size, proxyType: 'video/mp4', thumbsId: 't-' + m.id, thumbs: { n, cols: 10, rows: 5, w: 160, h: 90 }, fps: 30, duration: m.duration };
-      m.files = { ['p-' + m.id]: src, ['t-' + m.id]: thumbs };
+      const wave = path.join(dir, m.id + '-wave.bin');
+      execFileSync('node', ['--input-type=module', '-e', "import('" + new URL('../worker/common.js', import.meta.url).href + "').then((c) => c.makeWaveform(process.argv[1], process.argv[2]))", src, wave]);
+      m.prepare = { status: 'done', pct: 100, waveId: 'w-' + m.id, waveRate: 50, proxyId: 'p-' + m.id, proxySize: fs.statSync(src).size, proxyType: 'video/mp4', thumbsId: 't-' + m.id, thumbs: { n, cols: 10, rows: 5, w: 160, h: 90 }, fps: 30, duration: m.duration };
+      m.files = { ['p-' + m.id]: src, ['t-' + m.id]: thumbs, ['w-' + m.id]: wave };
     } catch (e) { console.error(e.message); m.prepare = { status: 'error', pct: 0 }; }
   }, 1500 / SPEED);
 }

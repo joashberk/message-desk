@@ -305,7 +305,7 @@
     clearInterval(S.render.timer);
     S.file = null; S.url = null; S.dur = 0; S.segs = null; S.inPt = S.outPt = null; S.sel = null; S.undo = []; S.redo = []; S.fit = true;
     S.thumbs = []; S.render = { pct: 0, done: false, timer: null }; S.rSegs = null; S.sentBack = ""; S.published = false;
-    S.msg = null; S.fps = 30; S.src = null; S.noteFiles = {}; lastSaved = ""; S.waitMsg = "";
+    S.msg = null; S.fps = 30; S.src = null; S.noteFiles = {}; lastSaved = ""; S.waitMsg = ""; S.wave = null; S.waveId = null;
     edP.clock = 0; rvP.clock = 0;
     inner.style.width = "100%";
     vid.removeAttribute("src"); rvid.removeAttribute("src");
@@ -698,8 +698,31 @@
         if (S.view === "edit") show("edit");
       };
       if (p.thumbsId && p.thumbs) loadSprite(p);
+      loadWave(p);
       if (S.view === "edit") show("edit");
     }, function () { setWaiting("This browser can't show the preview. Try Chrome."); });
+  }
+  function loadWave(p) {
+    if (!p || !p.waveId || S.waveId === p.waveId) return;
+    S.waveId = p.waveId;
+    serviceWorker().then(function () { return fetch("/media/" + p.waveId + "?type=application%2Foctet-stream"); })
+      .then(function (r) { if (!r.ok) throw new Error("wave"); return r.arrayBuffer(); })
+      .then(function (b) { S.wave = new Uint8Array(b); S.waveRate = p.waveRate || 50; scheduleVisible(); }, function () { S.waveId = null; });
+  }
+  function drawWave(w, pps) {
+    var c = $("#wave"), vw = viewW(), dpr = window.devicePixelRatio || 1, H = 26;
+    c.style.left = tScroll.scrollLeft + "px"; c.style.width = vw + "px"; c.style.height = H + "px";
+    if (c.width !== Math.round(vw * dpr) || c.height !== H * dpr) { c.width = Math.round(vw * dpr); c.height = H * dpr; }
+    var g = c.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, vw, H);
+    if (!S.wave || !S.dur) return;
+    var rate = S.waveRate, n = S.wave.length, left = tScroll.scrollLeft;
+    g.fillStyle = "rgba(214, 220, 232, .78)";
+    for (var x = 0; x < vw && left + x < w; x++) {
+      var i0 = Math.floor((left + x) / pps * rate), i1 = Math.max(i0 + 1, Math.ceil((left + x + 1) / pps * rate)), m = 0;
+      for (var i = i0; i < i1 && i < n; i++) if (S.wave[i] > m) m = S.wave[i];
+      var h = Math.max(1, m / 255 * (H - 4));
+      g.fillRect(x, (H - h) / 2, 1, h);
+    }
   }
   function loadSprite(p) {
     var t = p.thumbs, img = new Image();
@@ -819,6 +842,7 @@
       f += '<div class="tile" style="left:' + left + "px;width:" + tw + "px" + (img ? ";background-image:url(" + img + ")" : "") + '"></div>';
     }
     $("#film").innerHTML = f;
+    drawWave(w, pps);
   }
 
   /* ---------- Editor ---------- */
@@ -1032,6 +1056,10 @@
     S.sentBack = "";
     if (S.demo) { startRender(); show("details"); return; }
     if (!S.msg) return;
+    var cur = renderState();
+    if (S.msg.renderRequested && !cur.failed && !cur.idle && JSON.stringify(S.segs || null) === JSON.stringify(S.msg.renderSegs || null)) {
+      flushSave(); show("details"); return;
+    }
     S.renderErr = "";
     S.render = { pct: 0, done: false, timer: null };
     show("details");
@@ -1118,7 +1146,7 @@
     $(".bar", pill).hidden = done || st.failed || st.idle;
     $(".bar i", pill).style.width = (st.bar != null ? st.bar : p) + "%";
     $(".lbl", pill).textContent = done ? "Video ready" : (st.label || stageName(p) + " · " + Math.floor(p) + "%");
-    var failText = st.failed ? (S.renderErr || "The render didn't finish. Go back to the editor and press Push to Render again. If it keeps happening, tell the tech team.") : "";
+    var failText = st.failed ? (S.renderErr || "The video didn't finish. Go back to the editor and press Add details again. If it keeps happening, tell the tech team.") : "";
     var warn = failText || (!S.demo && !done ? quotaWarn : "");
     var db = $("#detBanner"); db.hidden = !warn; db.textContent = warn;
     var rb = $("#revBanner"); if (!S.pubErr) { rb.hidden = !failText; rb.textContent = failText; }
@@ -1154,7 +1182,7 @@
     $("#detCancel").hidden = !running; $("#revCancel").hidden = !running;
   }
   function cancelRender() {
-    if (!S.msg || !confirm("Stop this render? The post goes back to how it was before you pressed Push to Render.")) return;
+    if (!S.msg || !confirm("Stop making this video? The post goes back to how it was before.")) return;
     api("POST", "/messages/" + S.msg.id + "/cancel-render").then(function (v) { mergeView(v); S.rSegs = v.renderSegs; S.renderErr = ""; updateRender(); if (S.view === "review") renderReview(); }, function (e) { showDetErr(msgOf(e)); });
   }
   $("#detCancel").addEventListener("click", cancelRender);
@@ -1199,7 +1227,7 @@
     var m = S.msg;
     var renderBusy = m.renderRequested && !(m.render && (m.render.done || m.render.failed));
     var previewBusy = (m.original.uploaded || (m.source === "zoom" && !(m.importing && m.importing.failed))) && !(m.preview && (m.preview.proxyId || m.preview.status === "error"));
-    var watching = (S.view === "details" || S.view === "review") ? renderBusy || (m.render && m.render.done && m.status === "finished" && !m.webflow) : S.view === "edit" ? previewBusy && !S.url : false;
+    var watching = (S.view === "details" || S.view === "review") ? renderBusy || (m.render && m.render.done && m.status === "finished" && !m.webflow) : S.view === "edit" ? previewBusy : false;
     if (!watching) return;
     pollTimer = setTimeout(function () {
       if (!S.msg || S.msg.id !== m.id) return;
@@ -1208,6 +1236,7 @@
         var hadProxy = S.msg.preview && S.msg.preview.proxyId;
         mergeView(v);
         if (!S.dur && v.duration) S.dur = v.duration;
+        if (v.preview.waveId) loadWave(v.preview);
         if (!hadProxy && v.preview.proxyId && !S.url) usePreview(v);
         else if (!hadProxy && !S.url && S.view === "edit") usePreview(v);
         updateRender();
@@ -1346,8 +1375,8 @@
     $("#sundayOpts").hidden = d.coll !== "Sunday" || d.web === false;
     $("#slugField").hidden = d.web === false;
     $("#detIntro").textContent = d.web === false
-      ? "Finish files this in Google Drive and keeps it on Vimeo only. Nothing goes on the website."
-      : "Finish stages this as a draft on the website. Nothing goes live until someone approves it.";
+      ? "Save & review files this in Google Drive and keeps it on Vimeo only. Nothing goes on the website."
+      : "Save & review stages this as a draft on the website. Nothing goes live until someone publishes it.";
     renderThumbs();
     $("#detErr").hidden = true;
     $("#finishBtn").disabled = false;
@@ -1431,7 +1460,7 @@
   $("#finishBtn").addEventListener("click", function () {
     if ($("#fSpk").value.trim()) spk.add($("#fSpk").value);
     if ($("#fTag").value.trim()) tags.add($("#fTag").value);
-    var err = !title().trim() ? "Add a title before finishing." : (!S.d.date ? "Add the date of the message." : "");
+    var err = !title().trim() ? "Add a title first." : (!S.d.date ? "Add the date of the message." : "");
     if (err) { showDetErr(err); return; }
     if (S.demo) { show("review"); return; }
     var btn = $("#finishBtn"); btn.disabled = true; showDetErr("");
@@ -1494,7 +1523,7 @@
     pl.original.forEach(function (f) { h += '<div class="row" style="padding-left:42px">' + file + "<span>" + esc(f) + "</span></div>"; });
     h += '<div class="row new" style="padding-left:28px">' + fold + "<span>Final edit</span></div>";
     pl.final.forEach(function (f) { h += '<div class="row" style="padding-left:42px">' + file + "<span>" + esc(f) + "</span></div>"; });
-    h += '<p class="fine" style="margin-top:6px">Drive names follow the meeting date and are set automatically.</p>';
+    h += '<p class="fine" style="margin-top:6px">Drive names follow the meeting date and are set automatically. Once the post is published, the original recording is removed from Drive and only the final edit is kept, so keep the original on your own drive.</p>';
     $("#driveTree").innerHTML = h;
   }
   function renderReview() {

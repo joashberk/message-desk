@@ -5,7 +5,7 @@ import path from 'node:path';
 import * as G from '../lib/google.js';
 import * as M from '../lib/messages.js';
 import { rateExpr } from '../lib/cut.js';
-import { downloadToFile, uploadFromFile, probe, ffmpeg, throttled, log, freeDisk } from './common.js';
+import { downloadToFile, uploadFromFile, probe, ffmpeg, throttled, log, freeDisk, makeWaveform, WAVE_RATE } from './common.js';
 
 const id = process.argv[2] || process.env.MESSAGE_ID;
 const work = process.env.WORK_DIR || '/tmp/md';
@@ -47,6 +47,9 @@ async function main() {
   const cols = 10, rows = Math.ceil(n / cols), w = 160, h = 90;
   const thumbs = path.join(work, 'thumbs.jpg');
   await ffmpeg(['-y', '-i', proxy, '-vf', 'fps=' + n + '/' + info.duration.toFixed(3) + ',scale=' + w + ':' + h + ':force_original_aspect_ratio=increase,crop=' + w + ':' + h + ',tile=' + cols + 'x' + rows, '-frames:v', '1', '-q:v', '5', thumbs]);
+  // Sound wave for the timeline, from the preview's sound (lines up with the picture)
+  const wave = path.join(work, 'wave.bin');
+  const hasWave = info.hasAudio ? await makeWaveform(proxy, wave).then(() => true, (e) => { log('no sound wave'); return false; }) : false;
   state.pct = 92;
   await save(true);
 
@@ -54,8 +57,10 @@ async function main() {
   const has = (fid) => fid && kids.some((k) => k.id === fid);
   const p = await uploadFromFile({ path: proxy, parentId: m.id, name: 'preview.mp4', mimeType: 'video/mp4', fileId: has(prev.proxyId) ? prev.proxyId : undefined });
   const t = await uploadFromFile({ path: thumbs, parentId: m.id, name: 'thumbs.jpg', mimeType: 'image/jpeg', fileId: has(prev.thumbsId) ? prev.thumbsId : undefined });
+  const wv = hasWave ? await uploadFromFile({ path: wave, parentId: m.id, name: 'wave.bin', mimeType: 'application/octet-stream', fileId: has(prev.waveId) ? prev.waveId : undefined }) : null;
   Object.assign(state, {
     status: 'done', pct: 100, proxyId: p.id, proxySize: fs.statSync(proxy).size, thumbsId: t.id,
+    waveId: wv ? wv.id : null, waveRate: WAVE_RATE,
     thumbs: { n, cols, rows, w, h }, finishedAt: new Date().toISOString()
   });
   await save(true);

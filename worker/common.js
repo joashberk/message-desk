@@ -129,6 +129,35 @@ export function throttled(fn, ms = 8000) {
   return run;
 }
 
+// The sound wave for the editor's timeline: the loudest point in every 1/50 of a second, as one byte each.
+export const WAVE_RATE = 50;
+export function makeWaveform(input, out) {
+  return new Promise((resolve, reject) => {
+    const sr = 4000, per = sr / WAVE_RATE;
+    const p = spawn('ffmpeg', ['-v', 'error', '-i', input, '-vn', '-ac', '1', '-ar', String(sr), '-f', 's16le', 'pipe:1'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const peaks = [];
+    let carry = Buffer.alloc(0), count = 0, peak = 0;
+    p.stdout.on('data', (d) => {
+      const buf = carry.length ? Buffer.concat([carry, d]) : d;
+      const n = buf.length >> 1;
+      for (let i = 0; i < n; i++) {
+        const v = Math.abs(buf.readInt16LE(i * 2));
+        if (v > peak) peak = v;
+        if (++count === per) { peaks.push(Math.min(255, Math.round(Math.sqrt(peak / 32768) * 255))); count = 0; peak = 0; }
+      }
+      carry = buf.length & 1 ? buf.subarray(buf.length - 1) : Buffer.alloc(0);
+    });
+    let err = '';
+    p.stderr.on('data', (d) => { err += d; });
+    p.on('close', (code) => {
+      if (code !== 0) return reject(new Error('sound wave failed: ' + err.slice(-300)));
+      if (count) peaks.push(Math.min(255, Math.round(Math.sqrt(peak / 32768) * 255)));
+      fs.writeFileSync(out, Buffer.from(peaks));
+      resolve(peaks.length);
+    });
+  });
+}
+
 export function freeDisk() {
   try { return parseInt(execFileSync('df', ['--output=avail', '-B1', '.'], { encoding: 'utf8' }).trim().split('\n').pop(), 10); } catch (e) { return 0; }
 }
