@@ -27,9 +27,9 @@ async function main() {
   const orig = await G.getFile(m.edit.original.fileId);
   const src = path.join(work, 'original.' + m.edit.file.ext);
   await downloadToFile(orig.id, +orig.size, src, (at, size) => { props.pct = String(Math.floor(at / size * 10)); mark(); });
-  // Only the sound is needed: 16 kHz mono, which is what Whisper listens at
-  const audio = path.join(work, 'sound.flac');
-  await ffmpeg(['-y', '-i', src, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'flac', audio]);
+  // Only the sound is needed: 16 kHz mono raw samples, exactly what Whisper listens to
+  const audio = path.join(work, 'sound.f32');
+  await ffmpeg(['-y', '-i', src, '-vn', '-ac', '1', '-ar', '16000', '-f', 'f32le', '-acodec', 'pcm_f32le', audio]);
   fs.unlinkSync(src);
   props.pct = '12'; await mark(true);
 

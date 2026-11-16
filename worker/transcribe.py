@@ -5,9 +5,12 @@ import json
 import os
 import sys
 
+import numpy as np
+
 from faster_whisper import WhisperModel
 
-audio, out = sys.argv[1], sys.argv[2]
+# The sound arrives already prepared by ffmpeg: 16 kHz, mono, 32-bit samples
+audio, out = np.fromfile(sys.argv[1], dtype=np.float32), sys.argv[2]
 model = WhisperModel(os.environ.get('WHISPER_MODEL', 'small.en'), device='cpu', compute_type='int8', cpu_threads=os.cpu_count() or 4)
 segments, info = model.transcribe(
     audio, language='en', beam_size=1, vad_filter=True, word_timestamps=True,
