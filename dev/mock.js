@@ -159,6 +159,15 @@ export default async function mock(req, res) {
     const a = parts[2];
     if (!a && req.method === 'GET') return send(res, 200, view(m));
     if (!a && req.method === 'DELETE') { msgs.delete(m.id); return send(res, 200, { vimeoLeft: false }); }
+    if (a === 'presence') {
+      // Pretend someone else is on this post when MOCK_PRESENCE is set
+      m.presence = m.presence || {};
+      const now = Date.now();
+      if (b.leaving) delete m.presence[b.device]; else m.presence[b.device] = { at: now, view: b.view };
+      const others = Object.entries(m.presence).filter(([d, x]) => d !== b.device && now - x.at < 50000).map(([d, x]) => ({ name: 'Tester', email: 'tester@example.com', view: x.view, you: true }));
+      if (process.env.MOCK_PRESENCE) others.push({ name: 'Sam Rivera', email: 'sam@example.com', view: 'edit', you: false });
+      return send(res, 200, { others });
+    }
     if (a === 'thumb-upload') return send(res, 200, { sessionUrl: newUpload(m, 'thumb', 0, b.size) });
     if (a === 'thumb') { m.d.thumb = b.thumb; return send(res, 200, view(m)); }
     if (!a && req.method === 'PUT') { if (b.d) m.d = b.d; if ('segs' in b) m.segs = b.segs; if (b.fps) m.fps = b.fps; if (b.duration && !m.duration) m.duration = b.duration; m.updatedAt = Date.now(); return send(res, 200, { ok: true }); }

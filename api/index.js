@@ -2,6 +2,7 @@
 import { CONFIG, allowedEmails, env } from '../lib/config.js';
 import { getUser, setUserCookie, clearUserCookie, sign, verify } from '../lib/session.js';
 import * as G from '../lib/google.js';
+import * as Presence from '../lib/presence.js';
 import * as M from '../lib/messages.js';
 import { siteOptions } from '../lib/webflow.js';
 import * as Z from '../lib/zoom.js';
@@ -224,6 +225,7 @@ export default async function handler(req, res) {
         return send(res, 200, M.view(m));
       }
       if (!/^[\w-]{10,}$/.test(id || '')) return send(res, 404, { error: 'That post could not be found.' });
+      if (action === 'presence' && req.method === 'POST') return send(res, 200, await Presence.checkIn(id, user, await readBody(req)));
       const m = await M.load(id);
       const b = req.method === 'GET' ? {} : await readBody(req);
       if (!action && req.method === 'GET') {

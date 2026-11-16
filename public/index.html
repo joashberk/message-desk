@@ -356,6 +356,56 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
   .grp.r { justify-content: flex-start; }
 }
 .no-motion * { transition: none !important; }
+
+/* Side panel tabs and transcript */
+.panel { overflow: hidden; }
+.ptabs { flex: none; display: flex; gap: 4px; padding: 10px 12px 0; box-shadow: 0 1px 0 var(--line); }
+.ptabs button { position: relative; height: 34px; padding: 0 10px; border: 0; background: transparent; color: var(--muted); font-size: 13px; border-radius: 7px 7px 0 0; transition: color .15s ease-out; }
+.ptabs button[aria-selected="true"] { color: var(--ink); }
+.ptabs button[aria-selected="true"]::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: 0; height: 2px; border-radius: 2px; background: var(--ink); }
+@media (hover: hover) { .ptabs button:hover { color: var(--ink); } }
+.ppane { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; }
+#paneTr { overflow: hidden; }
+.tr-head { flex: none; display: flex; gap: 8px; align-items: center; padding: 12px 12px 10px; box-shadow: 0 1px 0 var(--line); }
+.tr-find { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; height: 32px; padding: 0 4px 0 9px; border-radius: 8px; background: var(--sunken); color: var(--muted); }
+.tr-find:focus-within { box-shadow: 0 0 0 2px var(--blue-ring); }
+.tr-find input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font-size: 13px; outline: none; height: 100%; padding: 0 2px; }
+.tr-find input::-webkit-search-cancel-button { display: none; }
+.tr-count { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.icon-btn.sm { width: 24px; height: 24px; }
+.tr-note { flex: none; padding: 0 16px; font-size: 12px; color: var(--muted); }
+.tr-note:not(:empty) { padding-top: 12px; padding-bottom: 4px; }
+.tr-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 6px 8px 24px; }
+.tr-p { display: grid; grid-template-columns: 52px 1fr; gap: 4px; padding: 8px 8px; border-radius: 8px; }
+.tr-p .tt { align-self: start; justify-self: start; border: 0; background: transparent; padding: 1px 0 0; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+@media (hover: hover) { .tr-p .tt:hover { color: var(--blue); } }
+.tr-p p { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--ink-2); }
+.tr-p p span { cursor: pointer; border-radius: 3px; transition: background-color .1s ease-out; }
+@media (hover: hover) { .tr-p p span:hover { background: var(--sunken); color: var(--ink); } }
+.tr-p p span.x { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--red); text-decoration-thickness: 1px; }
+.tr-p p span.now { background: var(--blue-soft); color: var(--ink); box-shadow: 0 0 0 2px var(--blue-soft); }
+.tr-p p span.hit { background: rgba(255, 196, 0, .28); color: var(--ink); }
+.tr-p p span.hit.cur { background: rgba(255, 176, 0, .7); color: #1b1b1b; }
+
+/* Locked timeline after Save & review */
+.lock { position: absolute; left: 12px; right: 12px; display: flex; align-items: center; justify-content: center; border-radius: 6px; pointer-events: none; background: color-mix(in srgb, var(--surface) 38%, transparent); }
+.lock .btn { pointer-events: auto; box-shadow: var(--ring), 0 6px 20px rgba(0, 0, 0, .25); height: 36px; padding: 0 14px; }
+.tl.locked .seg .tag { opacity: .6; }
+
+/* Someone else on this post */
+.presence { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); margin-right: 4px; white-space: nowrap; }
+.presence .faces { display: inline-flex; }
+.presence .face { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #fff; box-shadow: 0 0 0 2px var(--surface); position: relative; }
+.presence .face + .face { margin-left: -6px; }
+.presence .face::after { content: ""; position: absolute; right: -1px; bottom: -1px; width: 8px; height: 8px; border-radius: 50%; background: #2fbf71; box-shadow: 0 0 0 2px var(--surface); }
+@media (max-width: 720px) { .presence .who { display: none; } }
+
+/* Pick a Vimeo thumbnail from anywhere in the video */
+.frame-pick { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 10px; background: var(--sunken); }
+.fp-screen { aspect-ratio: 16 / 9; background: var(--stage); border-radius: 8px; overflow: hidden; box-shadow: var(--img-edge); }
+.fp-screen video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.frame-pick input[type="range"] { width: 100%; accent-color: var(--blue); }
+.fp-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
 </style>
 </head>
 <body>
@@ -422,8 +472,9 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
         <span class="tb-sub" id="editSub"></span>
       </div>
       <div class="tb-right">
+        <span class="presence" data-presence hidden></span>
         <span class="pill" id="upPill" hidden><span class="bar"><i></i></span><span class="lbl"></span></span>
-        <button class="icon-btn" id="panelBtn" aria-label="Side panel" aria-pressed="false" title="Side panel"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2.75" width="12" height="10.5" rx="2"></rect><path d="M10 2.75v10.5"></path></svg></button>
+        <button class="icon-btn" id="panelBtn" aria-label="Side panel" aria-pressed="true" title="Side panel"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2.75" width="12" height="10.5" rx="2"></rect><path d="M10 2.75v10.5"></path></svg></button>
         <button class="btn primary" id="pushBtn">Add details</button>
       </div>
     </header>
@@ -478,6 +529,9 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
               <div class="playhead" id="ph"></div>
             </div>
           </div>
+          <div class="lock" id="lockVeil" hidden>
+            <button class="btn" id="unlockBtn"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5"></rect><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"></path></svg>Unlock editing</button>
+          </div>
           <div class="tl-foot">
             <span class="hint" id="hint"></span>
             <span class="legend" id="legend" hidden><span><i class="r"></i>Remove</span><span><i class="k"></i>Keep</span></span>
@@ -490,13 +544,26 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
           </div>
         </div>
       </div>
-      <aside class="panel" id="panel" hidden>
-        <div class="psec" id="trSec">
-          <h3>Search what was said</h3>
-          <input class="input" id="trQ" type="search" placeholder="Type a word or phrase" autocomplete="off" disabled>
-          <p class="fine" id="trNote"></p>
-          <div class="tr-results" id="trResults"></div>
+      <aside class="panel" id="panel">
+        <div class="ptabs" role="tablist" aria-label="Side panel">
+          <button type="button" role="tab" id="tabTr" data-tab="tr" aria-selected="true" aria-controls="paneTr">Transcript</button>
+          <button type="button" role="tab" id="tabEd" data-tab="ed" aria-selected="false" aria-controls="paneEd">Editing</button>
         </div>
+        <div class="ppane" id="paneTr" role="tabpanel" aria-labelledby="tabTr">
+          <div class="tr-head">
+            <div class="tr-find">
+              <svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"></circle><path d="m10.5 10.5 3 3"></path></svg>
+              <input id="trQ" type="search" placeholder="Search the transcript" autocomplete="off" aria-label="Search the transcript" disabled>
+              <span class="tr-count num" id="trCount"></span>
+              <button type="button" class="icon-btn sm" id="trPrev" aria-label="Previous match" title="Previous (⇧ Enter)" hidden><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 10 3.5-3.5 3.5 3.5"></path></svg></button>
+              <button type="button" class="icon-btn sm" id="trNext" aria-label="Next match" title="Next (Enter)" hidden><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 6.5 3.5 3.5 3.5-3.5"></path></svg></button>
+            </div>
+            <button type="button" class="btn" id="trCopy" disabled title="Copy the whole transcript with times"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"></rect><path d="M10.5 5.5V4a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"></path></svg><span id="trCopyLbl">Copy</span></button>
+          </div>
+          <div class="tr-note" id="trNote"></div>
+          <div class="tr-body" id="trBody"></div>
+        </div>
+        <div class="ppane" id="paneEd" role="tabpanel" aria-labelledby="tabEd" hidden>
         <div class="psec">
           <h3>Sections</h3>
           <div id="cutList" style="display: flex; flex-direction: column; gap: 2px;"></div>
@@ -527,11 +594,12 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
             <kbd>⌘ + / −</kbd><span>Zoom the timeline</span>
             <kbd>⌘ 0</kbd><span>Fit the whole recording</span>
             <kbd>Esc</kbd><span>Clear in and out</span>
-            <kbd>⌘ F</kbd><span>Search what was said</span>
+            <kbd>⌘ F</kbd><span>Search the transcript</span>
             <kbd>⌘ Z</kbd><span>Undo</span>
             <kbd>⌘ ⇧ Z</kbd><span>Redo (or ⌘ Y)</span>
           </div>
           <p class="fine">Scroll or pinch over the timeline to zoom. Shift-scroll moves sideways.</p>
+        </div>
         </div>
       </aside>
     </div>
@@ -545,6 +613,7 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
         <span class="tb-title" id="detTitle"></span>
       </div>
       <div class="tb-right">
+        <span class="presence" data-presence hidden></span>
         <span class="pill" id="detPill"><span class="bar"><i></i></span><span class="lbl">Rendering</span></span>
         <button class="link" id="detCancel" style="font-size: 13px;" hidden>Cancel</button>
         <button class="btn primary" id="finishBtn">Save &amp; review</button>
@@ -598,7 +667,19 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
         <div class="field">
           <span class="lbl inl"><svg class="lg lg-vimeo" aria-hidden="true"><use href="#lg-vimeo"></use></svg>Vimeo thumbnail</span>
           <div class="thumb-grid" id="thumbGrid"></div>
-          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;"><button class="btn" id="thumbUpload">Upload image</button><input type="file" id="thumbIn" accept="image/jpeg,image/png" hidden><span class="fine" id="thumbNote"></span></div>
+          <div class="frame-pick" id="framePick" hidden>
+            <div class="fp-screen"><video id="fpVid" muted playsinline preload="auto"></video></div>
+            <input type="range" id="fpRange" min="0" max="1000" step="1" value="0" aria-label="Choose a moment">
+            <div class="fp-row">
+              <button type="button" class="icon-btn" id="fpBack" aria-label="One frame back" title="One frame back"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5 5.5 8l4.5 4.5"></path></svg></button>
+              <span class="num" id="fpTime">0:00</span>
+              <button type="button" class="icon-btn" id="fpFwd" aria-label="One frame forward" title="One frame forward"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5"></path></svg></button>
+              <span style="flex: 1;"></span>
+              <button type="button" class="btn" id="fpCancel">Cancel</button>
+              <button type="button" class="btn primary" id="fpUse">Use this frame</button>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;"><button class="btn" id="framePickBtn">Pick a frame</button><button class="btn" id="thumbUpload">Upload image</button><input type="file" id="thumbIn" accept="image/jpeg,image/png" hidden><span class="fine" id="thumbNote"></span></div>
         </div>
       </div>
       <div class="card">
@@ -638,6 +719,7 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
         <button class="link" id="revCancel" style="font-size: 13px;" hidden>Cancel</button>
       </div>
       <div class="tb-right">
+        <span class="presence" data-presence hidden></span>
         <button class="btn primary" id="publishBtn" disabled><svg class="lg" aria-hidden="true"><use href="#lg-webflow"></use></svg>Publish to Webflow</button>
       </div>
     </header>

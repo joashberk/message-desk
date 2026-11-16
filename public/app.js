@@ -95,16 +95,30 @@
   }
   function pushUndo() { S.undo.push(snapshot()); if (S.undo.length > 200) S.undo.shift(); S.redo = []; }
   function undo() {
+    if (isLocked()) { nudgeLock(); return; }
     if (!S.undo.length) return;
     S.redo.push(snapshot());
     restore(S.undo.pop());
   }
   function redo() {
+    if (isLocked()) { nudgeLock(); return; }
     if (!S.redo.length) return;
     S.undo.push(snapshot());
     restore(S.redo.pop());
   }
-  function updateHistoryUi() { $("#undoBtn").disabled = !S.undo.length; $("#redoBtn").disabled = !S.redo.length; }
+  function updateHistoryUi() { $("#undoBtn").disabled = !S.undo.length || isLocked(); $("#redoBtn").disabled = !S.redo.length || isLocked(); }
+  // After Save & review the cuts are locked, so nothing changes by accident
+  function isLocked() { return !S.demo && !!S.msg && (S.msg.status === "finished" || S.msg.status === "published") && !S.unlocked; }
+  function drawLock() {
+    var on = isLocked(), v = $("#lockVeil");
+    $("#tl").classList.toggle("locked", on);
+    v.hidden = !on;
+    ["#inBtn", "#outBtn", "#clearBtn"].forEach(function (id) { $(id).disabled = on; });
+    if (on) { v.style.top = tScroll.offsetTop + "px"; v.style.height = tScroll.offsetHeight + "px"; }
+  }
+  function nudgeLock() {
+    var b = $("#unlockBtn"); b.animate && b.animate([{ transform: "scale(1)" }, { transform: "scale(1.06)" }, { transform: "scale(1)" }], { duration: 260, easing: "ease-out" });
+  }
   function paint(a, b, t) {
     if (b - a < 0.01) return;
     pushUndo();
@@ -182,6 +196,7 @@
     if ($("#tcIn").hidden) $("#tcNow").textContent = fmt(t, 2);
     if (S.demo) $("#demoTc").textContent = fmt(t, 2);
     if (edP && edP.playing) keepVisible(t);
+    trFollow(t);
   }, function (on) {
     $("#playBtn").classList.toggle("on", on);
     $("#playBtn").setAttribute("aria-label", on ? "Pause" : "Play");
@@ -236,9 +251,54 @@
     if (v !== "review") rvP.pause();
     if (v === "upload") { renderUpload(); refreshList(); }
     if (v === "edit") { renderEditHeader(); requestAnimationFrame(function () { if (S.fit) inner.style.width = "100%"; renderVisible(); drawTL(); edP.onTick(edP.getT()); updateZoomUi(); }); }
-    if (v === "details") renderDetails();
+    if (v === "details") renderDetails(); else closeFramePick();
     if (v === "review") renderReview();
-    poll();
+    poll(); presenceSoon();
+  }
+
+  /* ---------- Who else is on this post ---------- */
+  var TAB_ID = (function () {
+    try { var t = sessionStorage.getItem("md.tab"); if (!t) { t = Math.random().toString(36).slice(2, 12) + Date.now().toString(36).slice(-4); sessionStorage.setItem("md.tab", t); } return t; }
+    catch (e) { return Math.random().toString(36).slice(2, 14); }
+  })();
+  var pres = { timer: 0, id: null, others: [] };
+  function presenceHere() { return !S.demo && S.user && S.msg && POST_VIEWS[S.view] && document.visibilityState === "visible" ? S.msg.id : null; }
+  function presenceLeave(id) {
+    var body = JSON.stringify({ device: TAB_ID, leaving: true });
+    try { if (navigator.sendBeacon && navigator.sendBeacon("/api/messages/" + id + "/presence", new Blob([body], { type: "application/json" }))) return; } catch (e) {}
+    fetch("/api/messages/" + id + "/presence", { method: "POST", credentials: "same-origin", keepalive: true, headers: { "Content-Type": "application/json" }, body: body }).catch(function () {});
+  }
+  function presenceSoon() { clearTimeout(pres.timer); pres.timer = setTimeout(presenceTick, 300); }
+  function presenceTick() {
+    clearTimeout(pres.timer);
+    var id = presenceHere();
+    if (pres.id && pres.id !== id) { presenceLeave(pres.id); pres.others = []; drawPresence(); }
+    pres.id = id;
+    if (!id) return;
+    api("POST", "/messages/" + id + "/presence", { device: TAB_ID, view: S.view }).then(function (r) {
+      if (pres.id !== id) return;
+      pres.others = (r && r.others) || []; drawPresence();
+    }, function () {}).then(function () { if (pres.id === id) { clearTimeout(pres.timer); pres.timer = setTimeout(presenceTick, 20000); } });
+  }
+  document.addEventListener("visibilitychange", presenceSoon);
+  window.addEventListener("pagehide", function () { if (pres.id) presenceLeave(pres.id); });
+  var FACE_COLORS = ["#2f5bea", "#0f9d74", "#c2410c", "#7c3aed", "#be185d", "#0e7490", "#a16207"];
+  function drawPresence() {
+    var o = pres.others, where = { edit: "editing", details: "on details", review: "reviewing" };
+    var h = "";
+    if (o.length) {
+      var faces = o.slice(0, 3).map(function (p) {
+        var nm = p.you ? (S.user && S.user.name) || p.name || p.email : p.name || p.email, ini = String(nm || "?").trim().charAt(0).toUpperCase();
+        var c = 0, key = (p.email || "") + (p.name || "");
+        for (var i = 0; i < key.length; i++) c = (c * 31 + key.charCodeAt(i)) >>> 0;
+        var label = (p.you ? "You, in another window" : nm) + " · " + (where[p.view] || "here");
+        return '<span class="face" style="background:' + FACE_COLORS[c % FACE_COLORS.length] + '" title="' + esc(label) + '">' + esc(ini) + "</span>";
+      }).join("");
+      var one = o[0], first = String(one.name || one.email || "").split(/[\s@]/)[0];
+      var text = o.length > 1 ? o.length + " others here" : one.you ? "Also open in another window" : first + " is " + (where[one.view] || "here");
+      h = '<span class="faces">' + faces + '</span><span class="who">' + esc(text) + "</span>";
+    }
+    $$("[data-presence]").forEach(function (el) { el.innerHTML = h; el.hidden = !h; });
   }
 
   /* ---------- Sign in ---------- */
@@ -312,7 +372,8 @@
     S.file = null; S.url = null; S.dur = 0; S.segs = null; S.inPt = S.outPt = null; S.sel = null; S.undo = []; S.redo = []; S.fit = true;
     S.thumbs = []; S.render = { pct: 0, done: false, timer: null }; S.rSegs = null; S.sentBack = ""; S.published = false;
     S.msg = null; S.fps = 30; S.src = null; S.noteFiles = {}; lastSaved = ""; S.waitMsg = ""; S.wave = null; S.waveId = null;
-    S.tr = null; S.trNorm = null; S.trId = null; $("#trQ").value = ""; $("#trResults").innerHTML = "";
+    S.tr = null; S.trNorm = null; S.trId = null; $("#trQ").value = ""; resetTranscript();
+    S.unlocked = false; S.spriteId = null; closeFramePick();
     edP.clock = 0; rvP.clock = 0;
     inner.style.width = "100%";
     vid.removeAttribute("src"); rvid.removeAttribute("src");
@@ -409,7 +470,7 @@
     $$("[data-cont]", el).forEach(function (b) {
       b.addEventListener("click", function () {
         var id = b.dataset.cont;
-        if (id === "demo" || (S.msg && S.msg.id === id)) { show(S.msg && S.msg.status === "finished" ? "review" : "edit"); return; }
+        if (id === "demo" || (S.msg && S.msg.id === id)) { show("edit"); return; }
         if (S.up.active) { $("#dropErr").textContent = "Another recording is still uploading. Let it finish first."; $("#dropErr").hidden = false; return; }
         openMessage(id, null, []);
       });
@@ -663,7 +724,7 @@
       var go = function () {
         // Review needs Finish first; anything else opens where it was asked for
         var want = view === "review" && v.status !== "finished" && v.status !== "published" ? "details" : view;
-        show(want || (v.status === "finished" ? "review" : "edit"));
+        show(want || "edit");
         if (localFile && !v.original.uploaded) startUploads(localFile);
         if (extraNotes && extraNotes.length) addNoteFiles(extraNotes);
         updateUpPill();
@@ -704,67 +765,174 @@
         if (isFinite(vid.duration) && vid.duration > 0 && !S.dur) { S.dur = vid.duration; }
         if (S.view === "edit") show("edit");
       };
-      if (p.thumbsId && p.thumbs) loadSprite(p);
+      loadSprite(p);
       loadWave(p);
       loadTranscript(p.transcript);
       if (S.view === "edit") show("edit");
     }, function () { setWaiting("This browser can't show the preview. Try Chrome."); });
   }
-  // Transcript search
+  // Transcript: the whole thing with times, click any word to jump there, search, copy
   function norm(w) { return String(w).toLowerCase().replace(/[^a-z0-9']+/g, ""); }
+  function resetTranscript() {
+    $("#trBody").innerHTML = ""; $("#trCount").textContent = "";
+    $("#trPrev").hidden = $("#trNext").hidden = true;
+    S.trSpans = null; S.trHits = []; S.trCur = -1; S.trNowI = -1; S.trParas = null;
+    $("#trCopy").disabled = true;
+  }
   function loadTranscript(t) {
     drawTrNote();
     if (!t || !t.id || S.trId === t.id) return;
     S.trId = t.id;
     serviceWorker().then(function () { return fetch("/media/" + t.id + "?type=application%2Fjson"); })
       .then(function (r) { if (!r.ok) throw new Error("tr"); return r.json(); })
-      .then(function (j) { S.tr = j.words || []; S.trNorm = S.tr.map(function (w) { return norm(w[2]); }); drawTrNote(); searchTr(); }, function () { S.trId = null; });
+      .then(function (j) { S.tr = j.words || []; S.trNorm = S.tr.map(function (w) { return norm(w[2]); }); buildTranscript(); drawTrNote(); searchTr(true); }, function () { S.trId = null; });
+  }
+  // Paragraphs break at pauses, or at the end of a sentence once one gets long
+  function paragraphs(words) {
+    var out = [], cur = null;
+    for (var i = 0; i < words.length; i++) {
+      var w = words[i], prev = words[i - 1];
+      var gap = prev ? w[0] - prev[1] : 0, n = cur ? i - cur.a : 0;
+      var endSentence = prev && /[.?!]["')\]]?$/.test(prev[2]);
+      if (!cur || gap > 1.6 || (n >= 45 && endSentence) || n >= 110) { cur = { a: i, b: i }; out.push(cur); }
+      cur.b = i;
+    }
+    return out;
+  }
+  function buildTranscript() {
+    var body = $("#trBody");
+    if (!S.tr || !S.tr.length) { body.innerHTML = ""; return; }
+    S.trParas = paragraphs(S.tr);
+    var h = "";
+    S.trParas.forEach(function (pg) {
+      h += '<div class="tr-p"><button type="button" class="tt" data-w="' + pg.a + '" title="Jump to ' + fmt(S.tr[pg.a][0]) + '">' + fmt(S.tr[pg.a][0]) + "</button><p>";
+      for (var i = pg.a; i <= pg.b; i++) h += '<span data-w="' + i + '">' + esc(S.tr[i][2]) + "</span> ";
+      h += "</p></div>";
+    });
+    body.innerHTML = h;
+    var spans = body.querySelectorAll("p span"); S.trSpans = new Array(S.tr.length);
+    for (var k = 0; k < spans.length; k++) S.trSpans[+spans[k].dataset.w] = spans[k];
+    S.trNowI = -1; S.trRemovedKey = null;
+    markRemovedWords(); trFollow(edP.getT());
+    $("#trCopy").disabled = false;
+  }
+  $("#trBody").addEventListener("click", function (e) {
+    var el = e.target.closest("[data-w]"); if (!el || !S.tr) return;
+    var t = S.tr[+el.dataset.w][0];
+    edP.pause(); edP.setT(Math.max(0, t - 0.05)); revealTime(t);
+  });
+  // Words in removed parts are crossed out
+  var removedTimer = 0;
+  function markRemovedSoon() { clearTimeout(removedTimer); removedTimer = setTimeout(markRemovedWords, 250); }
+  function markRemovedWords() {
+    if (!S.trSpans) return;
+    var key = JSON.stringify(S.segs || null);
+    if (key === S.trRemovedKey) return;
+    S.trRemovedKey = key;
+    for (var i = 0; i < S.tr.length; i++) {
+      var sp = S.trSpans[i]; if (!sp) continue;
+      var x = !!S.segs && removedAt((S.tr[i][0] + S.tr[i][1]) / 2, S.segs);
+      if (sp.classList.contains("x") !== x) sp.classList.toggle("x", x);
+    }
+  }
+  // The word being spoken at the playhead (the list doesn't scroll by itself)
+  function wordAt(t) {
+    var lo = 0, hi = S.tr.length - 1, ans = -1;
+    while (lo <= hi) { var mid = (lo + hi) >> 1; if (S.tr[mid][0] <= t + 0.02) { ans = mid; lo = mid + 1; } else hi = mid - 1; }
+    if (ans >= 0 && t > S.tr[ans][1] + 1.2) return -1;
+    return ans;
+  }
+  function trFollow(t) {
+    if (!S.trSpans || !S.tr.length) return;
+    var i = wordAt(t);
+    if (i === S.trNowI) return;
+    if (S.trNowI >= 0 && S.trSpans[S.trNowI]) S.trSpans[S.trNowI].classList.remove("now");
+    S.trNowI = i;
+    if (i >= 0 && S.trSpans[i]) S.trSpans[i].classList.add("now");
   }
   function drawTrNote() {
     var t = S.msg && S.msg.preview && S.msg.preview.transcript, q = $("#trQ"), note = $("#trNote");
     var ready = !!(S.tr && S.tr.length);
     q.disabled = !ready;
-    if (S.demo) { note.textContent = "The transcript isn't available for the sample recording."; return; }
-    if (ready) { if (!q.value) note.textContent = "Search " + S.tr.length.toLocaleString() + " words, then click a result to jump there."; return; }
-    var pct = !t ? 0 : t.status === "done" ? 100 : Math.floor(t.pct || 0);
-    var label = !t ? "Transcript loading" : t.status === "error" ? "" : t.status === "done" ? "Transcript loading" : "Writing the transcript";
+    if (S.demo) { note.textContent = "There's no transcript for the sample recording."; return; }
+    if (ready) { note.textContent = ""; return; }
     if (t && t.status === "error") { note.textContent = "The transcript couldn't be made for this recording."; return; }
+    if (t && t.status === "done" && S.tr && !S.tr.length) { note.textContent = "No speech was found in this recording."; return; }
+    var pct = !t ? 0 : t.status === "done" ? 100 : Math.floor(t.pct || 0);
+    var label = !t || t.status === "done" ? "Loading the transcript" : "Writing the transcript";
     note.innerHTML = '<span style="display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px;"><span>' + label + '</span><span class="num">' + (t ? pct + "%" : "") + '</span></span>' +
       '<span class="quota-bar" style="display: block;"><i style="width:' + pct + '%"></i></span>' +
-      '<span style="display: block; margin-top: 6px;">You can keep editing. Search turns on when it\'s ready.</span>';
+      '<span style="display: block; margin-top: 6px;">You can keep editing. It appears here when it\'s ready.</span>';
   }
-  function searchTr() {
-    var box = $("#trResults"), q = $("#trQ").value.trim();
-    if (!S.tr || !q) { box.innerHTML = ""; drawTrNote(); return; }
-    var terms = q.split(/\s+/).map(norm).filter(Boolean), n = terms.length, hits = [];
-    if (!n) { box.innerHTML = ""; return; }
-    for (var i = 0; i + n <= S.trNorm.length && hits.length < 200; i++) {
+  function searchTr(quiet) {
+    var q = $("#trQ").value.trim();
+    (S.trHits || []).forEach(function (h) { for (var k = h; k < h + S.trHitLen; k++) if (S.trSpans && S.trSpans[k]) S.trSpans[k].classList.remove("hit", "cur"); });
+    S.trHits = []; S.trCur = -1;
+    var terms = q.split(/\s+/).map(norm).filter(Boolean), n = terms.length;
+    if (!S.tr || !n) { $("#trCount").textContent = ""; $("#trPrev").hidden = $("#trNext").hidden = true; return; }
+    for (var i = 0; i + n <= S.trNorm.length; i++) {
       var ok = true;
       for (var k = 0; k < n && ok; k++) ok = k === n - 1 ? S.trNorm[i + k].indexOf(terms[k]) === 0 : S.trNorm[i + k] === terms[k];
-      if (ok) hits.push(i);
+      if (ok) S.trHits.push(i);
     }
-    $("#trNote").textContent = hits.length ? (hits.length >= 200 ? "200+" : hits.length) + (hits.length === 1 ? " place" : " places") + " found." : "Not found. Try a different word.";
-    box.innerHTML = hits.map(function (i) {
-      var from = Math.max(0, i - 6), to = Math.min(S.tr.length, i + n + 6), s = "";
-      for (var j = from; j < to; j++) s += (j === i ? "<mark>" : "") + esc(S.tr[j][2]) + (j === i + n - 1 ? "</mark>" : "") + " ";
-      var removed = removedAt(S.tr[i][0], S.segs);
-      return '<button type="button" class="tr-hit' + (removed ? " removed" : "") + '" data-w="' + i + '"><span class="t">' + fmt(S.tr[i][0]) + "</span><span>" + (from > 0 ? "… " : "") + s.trim() + (to < S.tr.length ? " …" : "") + (removed ? ' <span class="muted">(removed)</span>' : "") + "</span></button>";
-    }).join("");
-    $$(".tr-hit", box).forEach(function (b) {
-      b.addEventListener("click", function () {
-        $$(".tr-hit.on", box).forEach(function (x) { x.classList.remove("on"); });
-        b.classList.add("on");
-        var t = S.tr[+b.dataset.w][0];
-        edP.pause(); edP.setT(Math.max(0, t - 0.3)); revealTime(t);
-      });
-    });
+    S.trHitLen = n;
+    S.trHits.forEach(function (h) { for (var k = h; k < h + n; k++) if (S.trSpans[k]) S.trSpans[k].classList.add("hit"); });
+    $("#trPrev").hidden = $("#trNext").hidden = S.trHits.length < 2;
+    if (!S.trHits.length) { $("#trCount").textContent = "None"; return; }
+    // Start from the first match after the playhead
+    var now = edP.getT(), first = 0;
+    for (var j = 0; j < S.trHits.length; j++) if (S.tr[S.trHits[j]][0] >= now - 0.5) { first = j; break; }
+    goHit(first, false);
+  }
+  function goHit(i, seek) {
+    if (!S.trHits.length) return;
+    i = (i + S.trHits.length) % S.trHits.length;
+    if (S.trCur >= 0) { var o = S.trHits[S.trCur]; for (var k = o; k < o + S.trHitLen; k++) if (S.trSpans[k]) S.trSpans[k].classList.remove("cur"); }
+    S.trCur = i;
+    var h = S.trHits[i];
+    for (var k2 = h; k2 < h + S.trHitLen; k2++) if (S.trSpans[k2]) S.trSpans[k2].classList.add("cur");
+    $("#trCount").textContent = (i + 1) + " of " + S.trHits.length;
+    var el = S.trSpans[h], body = $("#trBody");
+    if (el) { var r = el.getBoundingClientRect(), br = body.getBoundingClientRect(); if (r.top < br.top + 20 || r.bottom > br.bottom - 20) body.scrollTop += r.top - br.top - br.height / 3; }
+    if (seek) { var t = S.tr[h][0]; edP.pause(); edP.setT(Math.max(0, t - 0.05)); revealTime(t); }
   }
   var trTimer = 0;
-  $("#trQ").addEventListener("input", function () { clearTimeout(trTimer); trTimer = setTimeout(searchTr, 150); });
+  $("#trQ").addEventListener("input", function () { clearTimeout(trTimer); trTimer = setTimeout(function () { searchTr(true); }, 150); });
   $("#trQ").addEventListener("keydown", function (e) {
-    if (e.key === "Enter") { var f = $("#trResults .tr-hit"); if (f) f.click(); }
+    // First Enter jumps to the highlighted match; after that Enter moves on (Shift goes back)
+    if (e.key === "Enter") { e.preventDefault(); if (S.trHits.length) goHit(S.trJumped ? S.trCur + (e.shiftKey ? -1 : 1) : S.trCur, true); S.trJumped = true; }
     if (e.key === "Escape") { $("#trQ").blur(); }
   });
+  $("#trQ").addEventListener("input", function () { S.trJumped = false; });
+  $("#trPrev").addEventListener("click", function () { goHit(S.trCur - 1, true); S.trJumped = true; });
+  $("#trNext").addEventListener("click", function () { goHit(S.trCur + 1, true); S.trJumped = true; });
+  $("#trCopy").addEventListener("click", function () {
+    if (!S.tr || !S.trParas) return;
+    var text = title() + "\n\n" + S.trParas.map(function (pg) {
+      var w = []; for (var i = pg.a; i <= pg.b; i++) w.push(S.tr[i][2]);
+      return "[" + fmt(S.tr[pg.a][0]) + "] " + w.join(" ");
+    }).join("\n\n") + "\n";
+    var done = function (ok) {
+      $("#trCopyLbl").textContent = ok ? "Copied" : "Couldn't copy";
+      clearTimeout(S.copyTimer); S.copyTimer = setTimeout(function () { $("#trCopyLbl").textContent = "Copy"; }, 1800);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(fallbackCopy(text)); });
+    else done(fallbackCopy(text));
+  });
+  function fallbackCopy(text) {
+    var ta = document.createElement("textarea"); ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select();
+    var ok = false; try { ok = document.execCommand("copy"); } catch (e) {} ta.remove(); return ok;
+  }
+
+  // Side panel: open unless someone closed it, with Transcript and Editing tabs
+  function setTab(tab) {
+    $$(".ptabs [data-tab]").forEach(function (b) { b.setAttribute("aria-selected", String(b.dataset.tab === tab)); });
+    $("#paneTr").hidden = tab !== "tr"; $("#paneEd").hidden = tab !== "ed";
+    lsSet("tab", tab);
+  }
+  $$(".ptabs [data-tab]").forEach(function (b) { b.addEventListener("click", function () { setTab(b.dataset.tab); }); });
+  setTab(lsGet("tab", "tr") === "ed" ? "ed" : "tr");
+  (function () { var open = lsGet("panel", true) !== false; $("#panel").hidden = !open; $("#panelBtn").setAttribute("aria-pressed", String(open)); })();
 
   function loadWave(p) {
     if (!p || !p.waveId || S.waveId === p.waveId) return;
@@ -789,7 +957,10 @@
     }
   }
   function loadSprite(p) {
+    if (!p || !p.thumbsId || !p.thumbs || S.spriteId === p.thumbsId + ":" + p.thumbs.n) return;
+    S.spriteId = p.thumbsId + ":" + p.thumbs.n;
     var t = p.thumbs, img = new Image();
+    img.onerror = function () { S.spriteId = null; };
     img.onload = function () {
       var c = document.createElement("canvas"); c.width = 192; c.height = 108; var g = c.getContext("2d");
       var out = [];
@@ -945,7 +1116,7 @@
     if (S.inPt != null && S.outPt == null) hint = "In point set. Move the playhead and press O for the out point.";
     else if (!popRange()) hint = S.segs ? "Click a section to switch it between Remove and Keep, or mark another range." : "Everything is kept. Press I and O to mark a range, then choose Remove or Keep.";
     $("#hint").textContent = hint;
-    drawPop(); drawCutList();
+    drawPop(); drawCutList(); drawLock(); markRemovedSoon();
     scheduleSave();
   }
   function drawPop() {
@@ -978,6 +1149,7 @@
     });
   }
   function apply(t) {
+    if (isLocked()) { nudgeLock(); return; }
     var r = popRange(); if (!r) return;
     paint(r.a, r.b, t);
     S.inPt = S.outPt = null;
@@ -988,6 +1160,7 @@
   }
   function markIn() {
     if (!S.dur) return;
+    if (isLocked()) { nudgeLock(); return; }
     var t = snap(edP.getT());
     if (S.inPt != null && Math.abs(S.inPt - t) < 0.001) return;
     pushUndo();
@@ -997,6 +1170,7 @@
   }
   function markOut() {
     if (!S.dur) return;
+    if (isLocked()) { nudgeLock(); return; }
     var t = snap(edP.getT()); S.sel = null;
     if (Math.abs(t - (S.inPt == null ? 0 : S.inPt)) < 0.005) return;
     if (S.outPt != null && Math.abs(S.outPt - t) < 0.001) return;
@@ -1024,7 +1198,7 @@
   function touchCount() { return Object.keys(touches).length; }
   // A cut (where Keep meets Remove) or an In/Out marker under the pointer, if any
   function edgeAt(clientX, touch) {
-    if (!S.dur) return null;
+    if (!S.dur || isLocked()) return null;
     var r = inner.getBoundingClientRect(), pps = r.width / S.dur, x = clientX - r.left, tol = touch ? 12 : 6;
     if (S.inPt != null && Math.abs(S.inPt * pps - x) <= tol) return { kind: "in" };
     if (S.outPt != null && Math.abs(S.outPt * pps - x) <= tol) return { kind: "out" };
@@ -1090,7 +1264,7 @@
     if (wasEdge) return;
     if (moved || e.type === "pointercancel") return;
     if (S.inPt != null || S.outPt != null) return;
-    if (S.segs) {
+    if (S.segs && !isLocked()) {
       var t = timeAt(e.clientX);
       var s = S.segs.find(function (x) { return t >= x.a && t < x.b; });
       S.sel = s ? { a: s.a, b: s.b } : null; drawTL();
@@ -1150,10 +1324,11 @@
   $("#popClear").addEventListener("click", noFocus(clearMarks));
   $("#undoBtn").addEventListener("click", noFocus(undo));
   $("#redoBtn").addEventListener("click", noFocus(redo));
-  $("#clearBtn").addEventListener("click", noFocus(function () { if (!S.segs) return; pushUndo(); S.segs = null; S.sel = null; S.inPt = S.outPt = null; drawTL(); }));
+  $("#unlockBtn").addEventListener("click", noFocus(function () { S.unlocked = true; drawTL(); }));
+  $("#clearBtn").addEventListener("click", noFocus(function () { if (!S.segs || isLocked()) return; pushUndo(); S.segs = null; S.sel = null; S.inPt = S.outPt = null; drawTL(); }));
   $("#skipChk").addEventListener("change", function () { S.skip = $("#skipChk").checked; });
   $("#panelBtn").addEventListener("click", function () {
-    var open = $("#panel").hidden; $("#panel").hidden = !open; $("#panelBtn").setAttribute("aria-pressed", String(open));
+    var open = $("#panel").hidden; $("#panel").hidden = !open; $("#panelBtn").setAttribute("aria-pressed", String(open)); lsSet("panel", open);
     requestAnimationFrame(function () { if (!S.fit && curPps() < minPps()) setPps(minPps()); renderVisible(); positionPop(); updateZoomUi(); });
   });
   $("#editBack").addEventListener("click", function () { flushSave(); show("upload"); });
@@ -1187,6 +1362,7 @@
     if (mod && k === "f") {
       e.preventDefault();
       if ($("#panel").hidden) $("#panelBtn").click();
+      setTab("tr");
       setTimeout(function () { $("#trQ").focus(); $("#trQ").select(); }, 30);
       return;
     }
@@ -1339,7 +1515,7 @@
     if (S.demo || !S.msg || !S.user) return;
     var m = S.msg;
     var renderBusy = m.renderRequested && !(m.render && (m.render.done || m.render.failed));
-    var previewBusy = (m.original.uploaded || (m.source === "zoom" && !(m.importing && m.importing.failed))) && !(m.preview && (m.preview.proxyId || m.preview.status === "error"));
+    var previewBusy = (m.original.uploaded || (m.source === "zoom" && !(m.importing && m.importing.failed))) && (!(m.preview && (m.preview.proxyId || m.preview.status === "error")) || (m.preview && (m.preview.status === "queued" || m.preview.status === "running")));
     var tr = m.preview && m.preview.transcript;
     var transcriptBusy = m.original.uploaded && !(tr && (tr.status === "done" || tr.status === "error"));
     var watching = (S.view === "details" || S.view === "review") ? renderBusy || (m.render && m.render.done && m.status === "finished" && !m.webflow) : S.view === "edit" ? previewBusy || transcriptBusy : false;
@@ -1352,6 +1528,7 @@
         mergeView(v);
         if (!S.dur && v.duration) S.dur = v.duration;
         if (v.preview.waveId) loadWave(v.preview);
+        if (S.view === "edit" && !S.url) loadSprite(v.preview);
         loadTranscript(v.preview.transcript);
         if (!hadProxy && v.preview.proxyId && !S.url) usePreview(v);
         else if (!hadProxy && !S.url && S.view === "edit") usePreview(v);
@@ -1529,6 +1706,10 @@
       var on = th && th.kind === "frame" && Math.abs(th.t - c.t) < 0.6;
       h += '<button type="button" class="thumb-opt' + (on ? " on" : "") + '" data-ti="' + i + '" aria-pressed="' + on + '" aria-label="Use the frame at ' + fmt(c.at) + '"' + (c.img ? ' style="background-image:url(' + c.img + ')"' : "") + "><span>" + fmt(c.at) + "</span></button>";
     });
+    if (th && th.kind === "frame" && !choices.some(function (c) { return Math.abs(th.t - c.t) < 0.6; })) {
+      var segsP = S.rSegs || S.segs, pic = S.thumbPicked && Math.abs(S.thumbPicked.t - th.t) < 0.01 ? S.thumbPicked.img : (S.thumbs.length ? S.thumbs[Math.min(S.thumbs.length - 1, Math.floor(th.t / S.dur * S.thumbs.length))] : null);
+      h += '<button type="button" class="thumb-opt on" data-tpick aria-pressed="true" aria-label="Your frame at ' + fmt(th.t - removedBefore(th.t, segsP)) + '"' + (pic ? ' style="background-image:url(' + pic + ')"' : "") + "><span>" + fmt(th.t - removedBefore(th.t, segsP)) + "</span></button>";
+    }
     if (th && th.kind === "image") {
       var src = S.thumbLocal || "/media/" + th.fileId + "?type=image%2Fjpeg";
       h += '<button type="button" class="thumb-opt on" data-timg aria-pressed="true" aria-label="Uploaded image" style="background-image:url(' + src + ')"><span>Uploaded</span></button>';
@@ -1542,12 +1723,53 @@
         saveThumb();
       });
     });
+    var tp = $("[data-tpick]", g); if (tp) tp.addEventListener("click", function () { S.d.thumb = null; saveThumb(); });
     var ti = $("[data-timg]", g); if (ti) ti.addEventListener("click", function () { S.d.thumb = null; S.thumbLocal = null; saveThumb(); });
     var applied = S.msg && S.msg.render && S.msg.render.thumbApplied;
     $("#thumbNote").textContent = !choices.length && !th ? "Frames to choose from appear once the preview is ready. Until then Vimeo picks one." :
-      !th ? "Pick a frame or upload an image. Otherwise Vimeo picks one." :
+      !th ? "Choose a frame, pick any moment, or upload an image. Otherwise Vimeo picks one." :
       applied ? "Set on Vimeo." : "It will be set on Vimeo once the video is there.";
   }
+  // Pick any moment of the final video for the Vimeo thumbnail
+  function fpKeeps() { var segs = S.rSegs || S.segs; return segs ? segs.filter(function (x) { return x.t === "keep"; }) : [{ a: 0, b: S.dur }]; }
+  function fpTotal() { return fpKeeps().reduce(function (a, k) { return a + k.b - k.a; }, 0); }
+  function fpToOriginal(e) { var keeps = fpKeeps(); for (var j = 0; j < keeps.length; j++) { var len = keeps[j].b - keeps[j].a; if (e <= len) return keeps[j].a + e; e -= len; } return keeps.length ? keeps[keeps.length - 1].b : 0; }
+  var fp = { e: 0, timer: 0 };
+  function openFramePick() {
+    var src = S.src;
+    if (!src || !S.dur) { showDetErr("The video isn't ready to pick from yet. Try again once the preview has loaded."); return; }
+    var v = $("#fpVid");
+    if (v.getAttribute("src") !== src) v.src = src;
+    var th = S.d.thumb, segs = S.rSegs || S.segs;
+    fp.e = th && th.kind === "frame" ? Math.max(0, th.t - removedBefore(th.t, segs)) : fpTotal() / 3;
+    $("#fpRange").value = String(Math.round(fp.e / Math.max(1, fpTotal()) * 1000));
+    $("#framePick").hidden = false; $("#framePickBtn").hidden = true;
+    fpSeek();
+  }
+  function closeFramePick() {
+    var box = $("#framePick"); if (!box || box.hidden) return;
+    box.hidden = true; $("#framePickBtn").hidden = false;
+    var v = $("#fpVid"); v.pause(); v.removeAttribute("src"); try { v.load(); } catch (e) {}
+  }
+  function fpSeek() {
+    var total = fpTotal(); fp.e = Math.min(Math.max(0, fp.e), Math.max(0, total - FRAME()));
+    $("#fpTime").textContent = fmt(fp.e, 2) + " / " + fmt(total);
+    clearTimeout(fp.timer);
+    fp.timer = setTimeout(function () { try { $("#fpVid").currentTime = fpToOriginal(fp.e) + 1e-4; } catch (e) {} }, 40);
+  }
+  $("#framePickBtn").addEventListener("click", openFramePick);
+  $("#fpCancel").addEventListener("click", closeFramePick);
+  $("#fpRange").addEventListener("input", function () { fp.e = +$("#fpRange").value / 1000 * fpTotal(); fpSeek(); });
+  $("#fpBack").addEventListener("click", function () { fp.e -= FRAME(); $("#fpRange").value = String(Math.round(fp.e / Math.max(1, fpTotal()) * 1000)); fpSeek(); });
+  $("#fpFwd").addEventListener("click", function () { fp.e += FRAME(); $("#fpRange").value = String(Math.round(fp.e / Math.max(1, fpTotal()) * 1000)); fpSeek(); });
+  $("#fpUse").addEventListener("click", function () {
+    var t = Math.round(fpToOriginal(fp.e) * 100) / 100, v = $("#fpVid"), img = null;
+    try { var c = document.createElement("canvas"); c.width = 192; c.height = 108; c.getContext("2d").drawImage(v, 0, 0, 192, 108); img = c.toDataURL("image/jpeg", 0.75); } catch (e) {}
+    S.thumbPicked = { t: t, img: img };
+    S.d.thumb = { kind: "frame", t: t };
+    closeFramePick(); saveThumb();
+  });
+
   function saveThumb() {
     renderThumbs();
     if (S.demo || !S.msg) return;
