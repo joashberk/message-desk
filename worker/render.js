@@ -9,7 +9,7 @@ import * as G from '../lib/google.js';
 import * as M from '../lib/messages.js';
 import * as N from '../lib/naming.js';
 import { vimeo, videoIdFromUri } from '../lib/vimeo.js';
-import { notify } from '../lib/notify.js';
+import { notify, emailTeam } from '../lib/notify.js';
 import { buildRenderArgs, planChunks, keepRanges } from '../lib/cut.js';
 import { downloadToFile, uploadFromFile, probe, ffmpeg, throttled, log, freeDisk } from './common.js';
 
@@ -280,6 +280,10 @@ async function tell(post, ok) {
       ? { title: web ? 'Ready to publish' : 'Ready on Vimeo', body: name + ' is ready. Tap to ' + (web ? 'review and publish it.' : 'check it.'), url: '/#/post/' + post.id + '/' + (finished ? 'review' : 'details') }
       : { title: 'Render stopped', body: name + " didn't finish. Tap to open it and try again.", url: '/#/post/' + post.id + '/edit' };
     log('notified', await notify(note), 'devices');
+    const mail = ok
+      ? { ...note, name, body: name + ' has been edited and is ready. ' + (web ? 'Review it and publish it to the website.' : 'Check it on Vimeo and mark it as done.'), button: web ? 'Review and publish' : 'Open it' }
+      : { ...note, name, body: name + " didn't finish being made. Open it in Message Desk and try again.", button: 'Open it' };
+    try { log('emailed', await emailTeam(mail), 'people'); } catch (e) { log('no email sent:', e.message); }
   } catch (e) { log('could not send notifications'); }
 }
 

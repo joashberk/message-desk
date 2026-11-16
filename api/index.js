@@ -148,7 +148,7 @@ export default async function handler(req, res) {
         client_id: env('GOOGLE_CLIENT_ID'),
         redirect_uri: origin(req) + '/api/google/callback',
         response_type: 'code',
-        scope: 'openid email https://www.googleapis.com/auth/drive',
+        scope: 'openid email https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/gmail.send',
         access_type: 'offline',
         prompt: 'consent select_account',
         login_hint: CONFIG.driveAccount,
@@ -239,7 +239,12 @@ export default async function handler(req, res) {
       if (action === 'notes' && req.method === 'POST') { const added = await M.addNotes(m, b.files, origin(req)); return send(res, 200, { added, message: M.view(m) }); }
       if (action === 'notes' && req.method === 'DELETE') { await M.removeNote(m, parts[3]); return send(res, 200, M.view(m)); }
       if (action === 'cancel-render') { await M.cancelRender(m); return send(res, 200, M.view(m)); }
-      if (action === 'render') { await M.requestRender(m, b); return send(res, 200, M.view(m)); }
+      if (action === 'render') {
+        await M.requestRender(m, b);
+        // Who gets the "ready" email, and the app's address for its button
+        Notify.rememberTeam(allowedEmails(), origin(req)).catch((e) => console.error('team list', e.message));
+        return send(res, 200, M.view(m));
+      }
       if (action === 'finish') { await M.finish(m, b); return send(res, 200, M.view(m)); }
       if (action === 'publish') { await M.publish(m); return send(res, 200, M.view(m)); }
     }
@@ -277,6 +282,11 @@ async function status() {
       return r.ok;
     }),
     zoom: process.env.ZOOM_WEBHOOK_SECRET ? 'ok' : 'missing',
+    email: await check(['GOOGLE_REFRESH_TOKEN'], async () => {
+      const r = await fetch('https://oauth2.googleapis.com/tokeninfo?access_token=' + encodeURIComponent(await G.accessToken()));
+      const j = await r.json().catch(() => ({}));
+      return String(j.scope || '').includes('gmail.send');
+    }),
     renderJobs: await check(['GH_DISPATCH_TOKEN'], async () => {
       const r = await fetch('https://api.github.com/repos/' + CONFIG.githubRepo + '/actions/workflows/render.yml', { headers: { Authorization: 'Bearer ' + process.env.GH_DISPATCH_TOKEN, Accept: 'application/vnd.github+json', 'User-Agent': 'message-desk' } });
       return r.ok;

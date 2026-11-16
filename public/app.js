@@ -168,6 +168,8 @@
   };
 
   var vid = $("#vid"), rvid = $("#rvid");
+  var FS_ENTER = '<svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"></path></svg>';
+  var FS_EXIT = '<svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2.5V6H2.5M13.5 6H10V2.5M10 13.5V10h3.5M2.5 10H6v3.5"></path></svg>';
   var inner = $("#tInner"), tScroll = $("#tScroll"), ph = $("#ph");
 
   var edP = new Player(vid, function (t) {
@@ -952,8 +954,40 @@
   // Pointer: scrub (no snapping), click to select a section, two-finger pinch to zoom
   var drag = null, touches = {}, pinch = null;
   function touchCount() { return Object.keys(touches).length; }
+  // A cut (where Keep meets Remove) or an In/Out marker under the pointer, if any
+  function edgeAt(clientX, touch) {
+    if (!S.dur) return null;
+    var r = inner.getBoundingClientRect(), pps = r.width / S.dur, x = clientX - r.left, tol = touch ? 12 : 6;
+    if (S.inPt != null && Math.abs(S.inPt * pps - x) <= tol) return { kind: "in" };
+    if (S.outPt != null && Math.abs(S.outPt * pps - x) <= tol) return { kind: "out" };
+    if (S.segs) for (var i = 0; i < S.segs.length - 1; i++) if (Math.abs(S.segs[i].b * pps - x) <= tol) return { kind: "cut", i: i };
+    return null;
+  }
+  function dragEdge(d, clientX) {
+    var f = 1 / S.fps, t = snap(timeAt(clientX));
+    if (d.kind === "cut") {
+      var a = S.segs[d.i], b = S.segs[d.i + 1];
+      t = Math.min(b.b - f, Math.max(a.a + f, t));
+      if (!d.saved) { pushUndo(); d.saved = true; a = S.segs[d.i]; b = S.segs[d.i + 1]; }
+      a.b = t; b.a = t; S.sel = null;
+    } else if (d.kind === "in") {
+      S.inPt = Math.max(0, S.outPt != null ? Math.min(t, S.outPt - f) : t);
+    } else {
+      S.outPt = Math.min(S.dur, Math.max(t, (S.inPt || 0) + f));
+    }
+    edP.setT(t + 1e-4);
+    drawTL();
+  }
   inner.addEventListener("pointerdown", function (e) {
     if (!S.dur) return;
+    var edge = (e.pointerType !== "touch" || touchCount() === 0) && (e.pointerType === "touch" || e.button === 0) ? edgeAt(e.clientX, e.pointerType === "touch") : null;
+    if (edge) {
+      if (e.pointerType === "touch") touches[e.pointerId] = e.clientX;
+      edP.pause();
+      drag = { x: e.clientX, moved: false, edge: edge };
+      try { inner.setPointerCapture(e.pointerId); } catch (er) {}
+      return;
+    }
     if (e.pointerType === "touch") {
       touches[e.pointerId] = e.clientX;
       if (touchCount() === 2) {
@@ -975,13 +1009,15 @@
       setPps(pinch.p0 * d / pinch.d0, (xs[0] + xs[1]) / 2, pinch.t0);
       return;
     }
-    if (!drag) return;
-    if (Math.abs(e.clientX - drag.x) > 3) drag.moved = true;
+    if (!drag) { if (e.pointerType === "mouse") inner.style.cursor = edgeAt(e.clientX) ? "ew-resize" : ""; return; }
+    if (Math.abs(e.clientX - drag.x) > 2) drag.moved = true;
+    if (drag.edge) { if (drag.moved) dragEdge(drag.edge, e.clientX); return; }
     if (drag.moved) edP.setT(timeAt(e.clientX));
   });
   function endPointer(e) {
     if (e.pointerType === "touch") { delete touches[e.pointerId]; if (touchCount() < 2) pinch = null; }
-    if (!drag) return; var moved = drag.moved; drag = null;
+    if (!drag) return; var moved = drag.moved, wasEdge = drag.edge; drag = null;
+    if (wasEdge) return;
     if (moved || e.type === "pointercancel") return;
     if (S.inPt != null || S.outPt != null) return;
     if (S.segs) {
@@ -1073,6 +1109,7 @@
     if (tag === "input" || tag === "textarea" || tag === "select" || e.target.isContentEditable) return;
     var k = e.key.toLowerCase(), mod = e.metaKey || e.ctrlKey;
     if (S.view === "review" && k === " " && tag !== "button") { e.preventDefault(); rvP.toggle(); return; }
+    if (S.view === "review" && k === "f" && !e.metaKey && !e.ctrlKey) { e.preventDefault(); fullScreen(); return; }
     if (S.view !== "edit") return;
     if (mod && (k === "=" || k === "+")) { e.preventDefault(); zoomBy(1.6); return; }
     if (mod && (k === "-" || k === "_")) { e.preventDefault(); zoomBy(1 / 1.6); return; }
@@ -1560,6 +1597,22 @@
     renderReviewStatus();
   }
   $("#rPlay").addEventListener("click", noFocus(function () { rvP.toggle(); }));
+  function fullScreen() {
+    var st = $("#rvStage");
+    var fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+    if (fsEl) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
+    if (st.requestFullscreen) st.requestFullscreen().catch(function () {});
+    else if (st.webkitRequestFullscreen) st.webkitRequestFullscreen();
+    else if (rvid.webkitEnterFullscreen && !S.demo) rvid.webkitEnterFullscreen(); // iPhone: the phone's own player
+  }
+  $("#rFull").addEventListener("click", noFocus(fullScreen));
+  ["fullscreenchange", "webkitfullscreenchange"].forEach(function (ev) {
+    document.addEventListener(ev, function () {
+      var on = !!(document.fullscreenElement || document.webkitFullscreenElement);
+      $("#rFull").setAttribute("aria-label", on ? "Exit full screen" : "Full screen");
+      $("#rFull").innerHTML = on ? FS_EXIT : FS_ENTER;
+    });
+  });
   $("#rBar").addEventListener("click", function (e) {
     if (!S.dur) return;
     var r = $("#rBar").getBoundingClientRect(), t = (e.clientX - r.left) / r.width * S.dur;

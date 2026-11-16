@@ -325,6 +325,17 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
 .machines .mc.snd i { background: var(--muted); }
 .machines .mc.snd.done i { background: var(--ok); }
 .del-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 13px; }
+.rv-stage { display: flex; flex-direction: column; gap: 12px; }
+.rv-stage:fullscreen { background: #000; padding: 16px 20px; justify-content: center; }
+.rv-stage:fullscreen .rv-video { flex: 1; min-height: 0; aspect-ratio: auto; border-radius: 0; box-shadow: none; }
+.rv-stage:fullscreen .rv-ctl { color: #fff; }
+.rv-stage:fullscreen .rv-ctl .muted { color: rgba(255, 255, 255, .6); }
+.rv-stage:fullscreen .rv-bar { background: rgba(255, 255, 255, .18); }
+.rv-stage:fullscreen .rv-bar .ph { background: #fff; }
+.rv-stage:fullscreen .play { background: #fff; color: #000; }
+.rv-stage:fullscreen .icon-btn { color: #fff; }
+.rv-stage:-webkit-full-screen { background: #000; padding: 16px 20px; justify-content: center; }
+.rv-stage:-webkit-full-screen .rv-video { flex: 1; min-height: 0; aspect-ratio: auto; border-radius: 0; box-shadow: none; }
 .gbtn { min-height: 44px; display: flex; justify-content: center; margin-top: 6px; }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -623,6 +634,7 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
     <div class="banner" id="revBanner" hidden></div>
     <div class="review-wrap enter">
       <div class="rv-main">
+        <div class="rv-stage" id="rvStage">
         <div class="rv-video">
           <video id="rvid" playsinline preload="auto"></video>
           <div class="demo-screen" id="rDemo" hidden><span>Final edit</span><span class="big" id="rDemoTc">0:00</span></div>
@@ -634,6 +646,8 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
           </button>
           <div class="rv-bar" id="rBar"></div>
           <span class="num" style="font-size: 13px;"><span id="rNow">0:00</span> <span class="muted">/ <span id="rLen">0:00</span></span></span>
+          <button class="icon-btn" id="rFull" aria-label="Full screen" title="Full screen (F)"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"></path></svg></button>
+        </div>
         </div>
         <p class="fine">This is the final edit. Removed sections are skipped.</p>
         <div class="card coll">
