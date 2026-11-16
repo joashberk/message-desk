@@ -722,10 +722,12 @@
     q.disabled = !ready;
     if (S.demo) { note.textContent = "The transcript isn't available for the sample recording."; return; }
     if (ready) { if (!q.value) note.textContent = "Search " + S.tr.length.toLocaleString() + " words, then click a result to jump there."; return; }
-    note.textContent = !t ? "The transcript appears here a little while after the upload finishes."
-      : t.status === "error" ? "The transcript couldn't be made for this recording."
-      : t.status === "done" ? "Loading the transcript…"
-      : "Writing the transcript · " + Math.floor(t.pct || 0) + "%";
+    var pct = !t ? 0 : t.status === "done" ? 100 : Math.floor(t.pct || 0);
+    var label = !t ? "Transcript loading" : t.status === "error" ? "" : t.status === "done" ? "Transcript loading" : "Writing the transcript";
+    if (t && t.status === "error") { note.textContent = "The transcript couldn't be made for this recording."; return; }
+    note.innerHTML = '<span style="display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px;"><span>' + label + '</span><span class="num">' + (t ? pct + "%" : "") + '</span></span>' +
+      '<span class="quota-bar" style="display: block;"><i style="width:' + pct + '%"></i></span>' +
+      '<span style="display: block; margin-top: 6px;">You can keep editing. Search turns on when it\'s ready.</span>';
   }
   function searchTr() {
     var box = $("#trResults"), q = $("#trQ").value.trim();
