@@ -87,18 +87,22 @@
     if (!segs) return 0;
     return segs.reduce(function (a, s) { return s.t !== "remove" ? a : a + Math.max(0, Math.min(t, s.b) - s.a); }, 0);
   }
-  function pushUndo() { S.undo.push(JSON.stringify(S.segs)); if (S.undo.length > 200) S.undo.shift(); S.redo = []; }
+  function snapshot() { return JSON.stringify({ segs: S.segs, inPt: S.inPt, outPt: S.outPt }); }
+  function restore(x) {
+    var v = JSON.parse(x);
+    if (Array.isArray(v) || v === null) v = { segs: v, inPt: null, outPt: null }; // older entries
+    S.segs = v.segs; S.inPt = v.inPt; S.outPt = v.outPt; S.sel = null; drawTL();
+  }
+  function pushUndo() { S.undo.push(snapshot()); if (S.undo.length > 200) S.undo.shift(); S.redo = []; }
   function undo() {
     if (!S.undo.length) return;
-    S.redo.push(JSON.stringify(S.segs));
-    S.segs = JSON.parse(S.undo.pop());
-    S.sel = null; S.inPt = S.outPt = null; drawTL();
+    S.redo.push(snapshot());
+    restore(S.undo.pop());
   }
   function redo() {
     if (!S.redo.length) return;
-    S.undo.push(JSON.stringify(S.segs));
-    S.segs = JSON.parse(S.redo.pop());
-    S.sel = null; S.inPt = S.outPt = null; drawTL();
+    S.undo.push(snapshot());
+    restore(S.redo.pop());
   }
   function updateHistoryUi() { $("#undoBtn").disabled = !S.undo.length; $("#redoBtn").disabled = !S.redo.length; }
   function paint(a, b, t) {
@@ -984,20 +988,25 @@
   }
   function markIn() {
     if (!S.dur) return;
-    var t = snap(edP.getT()); S.sel = null; S.inPt = t;
+    var t = snap(edP.getT());
+    if (S.inPt != null && Math.abs(S.inPt - t) < 0.001) return;
+    pushUndo();
+    S.sel = null; S.inPt = t;
     if (S.outPt != null && S.outPt <= t + 0.005) S.outPt = null;
     drawTL();
   }
   function markOut() {
     if (!S.dur) return;
     var t = snap(edP.getT()); S.sel = null;
+    if (Math.abs(t - (S.inPt == null ? 0 : S.inPt)) < 0.005) return;
+    if (S.outPt != null && Math.abs(S.outPt - t) < 0.001) return;
+    pushUndo();
     if (S.inPt == null) S.inPt = 0;
-    if (Math.abs(t - S.inPt) < 0.005) return;
     if (t < S.inPt) { S.outPt = S.inPt; S.inPt = t; } else S.outPt = t;
     drawTL();
   }
   function stepFrames(n) { edP.pause(); edP.setT((frameAt(edP.getT()) + n) / S.fps + 1e-4); revealTime(edP.getT()); }
-  function clearMarks() { S.inPt = S.outPt = null; S.sel = null; drawTL(); }
+  function clearMarks() { if (S.inPt != null || S.outPt != null) pushUndo(); S.inPt = S.outPt = null; S.sel = null; drawTL(); }
   function timeAt(cx) { var r = inner.getBoundingClientRect(); return Math.min(Math.max((cx - r.left) / r.width, 0), 1) * S.dur; }
   function revealTime(t) {
     if (S.fit) return;
@@ -1030,8 +1039,10 @@
       if (!d.saved) { pushUndo(); d.saved = true; a = S.segs[d.i]; b = S.segs[d.i + 1]; }
       a.b = t; b.a = t; S.sel = null;
     } else if (d.kind === "in") {
+      if (!d.saved) { pushUndo(); d.saved = true; }
       S.inPt = Math.max(0, S.outPt != null ? Math.min(t, S.outPt - f) : t);
     } else {
+      if (!d.saved) { pushUndo(); d.saved = true; }
       S.outPt = Math.min(S.dur, Math.max(t, (S.inPt || 0) + f));
     }
     edP.setT(t + 1e-4);
