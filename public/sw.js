@@ -4,6 +4,8 @@ var tok = null;
 
 self.addEventListener("install", function () { self.skipWaiting(); });
 self.addEventListener("activate", function (e) { e.waitUntil(self.clients.claim()); });
+// A page loaded with a hard refresh asks to be looked after too
+self.addEventListener("message", function (e) { if (e.data && e.data.claim) e.waitUntil(self.clients.claim()); });
 
 function token(force) {
   if (!force && tok && tok.expires_at > Date.now() + 60000) return Promise.resolve(tok.access_token);

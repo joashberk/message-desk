@@ -743,14 +743,23 @@
     if (swReady) return swReady;
     swReady = new Promise(function (res, rej) {
       if (!("serviceWorker" in navigator)) { rej(new Error("no sw")); return; }
-      navigator.serviceWorker.register("/sw.js").then(function () {
+      navigator.serviceWorker.register("/sw.js").then(function () { return navigator.serviceWorker.ready; }).then(function (reg) {
         if (navigator.serviceWorker.controller) { res(); return; }
         navigator.serviceWorker.addEventListener("controllerchange", function () { res(); }, { once: true });
-        setTimeout(function () { if (navigator.serviceWorker.controller) res(); else rej(new Error("sw")); }, 8000);
+        // A hard refresh (or a first visit) leaves the page without the helper: ask it to take over now
+        try { reg.active && reg.active.postMessage({ claim: true }); } catch (e) {}
+        setTimeout(function () {
+          if (navigator.serviceWorker.controller) { res(); return; }
+          // Still not in charge: one quiet reload fixes it
+          var tried = false; try { tried = sessionStorage.getItem("md.swReload") === "1"; sessionStorage.setItem("md.swReload", "1"); } catch (e) { tried = true; }
+          if (!tried) { location.reload(); return; }
+          rej(new Error("sw"));
+        }, 2500);
       }, rej);
     });
     return swReady;
   }
+  window.addEventListener("load", function () { setTimeout(function () { try { if (navigator.serviceWorker && navigator.serviceWorker.controller) sessionStorage.removeItem("md.swReload"); } catch (e) {} }, 3000); });
   function usePreview(v) {
     var p = v.preview || {};
     if (!p.proxyId) {
@@ -769,7 +778,7 @@
       loadWave(p);
       loadTranscript(p.transcript);
       if (S.view === "edit") show("edit");
-    }, function () { setWaiting("This browser can't show the preview. Try Chrome."); });
+    }, function () { setWaiting("The preview couldn't load in this window. Refresh the page to try again."); });
   }
   // Transcript: the whole thing with times, click any word to jump there, search, copy
   function norm(w) { return String(w).toLowerCase().replace(/[^a-z0-9']+/g, ""); }
