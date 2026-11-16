@@ -38,7 +38,7 @@ jobs:
           key: whisper-small-en-v1
       - name: Install the transcriber and ffmpeg
         run: |
-          pip install --quiet faster-whisper==1.1.1
+          pip install --quiet faster-whisper==1.1.1 requests
           command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
       - name: Write the transcript
         env:
