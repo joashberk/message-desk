@@ -55,11 +55,14 @@ async function main() {
   state.pct = 92;
   await save(true);
 
-  const kids = await G.listChildren(m.id);
-  const has = (fid) => fid && kids.some((k) => k.id === fid);
-  const p = await uploadFromFile({ path: proxy, parentId: m.id, name: 'preview.mp4', mimeType: 'video/mp4', fileId: has(prev.proxyId) ? prev.proxyId : undefined });
-  const t = await uploadFromFile({ path: thumbs, parentId: m.id, name: 'thumbs.jpg', mimeType: 'image/jpeg', fileId: has(prev.thumbsId) ? prev.thumbsId : undefined });
-  const wv = hasWave ? await uploadFromFile({ path: wave, parentId: m.id, name: 'wave.bin', mimeType: 'application/octet-stream', fileId: has(prev.waveId) ? prev.waveId : undefined }) : null;
+  // Always new files: someone may still be watching the previous preview, and changing a file while it
+  // streams breaks playback. The previous set is cleared the next time (or when the post is published).
+  const p = await uploadFromFile({ path: proxy, parentId: m.id, name: 'preview.mp4', mimeType: 'video/mp4' });
+  const t = await uploadFromFile({ path: thumbs, parentId: m.id, name: 'thumbs.jpg', mimeType: 'image/jpeg' });
+  const wv = hasWave ? await uploadFromFile({ path: wave, parentId: m.id, name: 'wave.bin', mimeType: 'application/octet-stream' }) : null;
+  const retire = [prev.proxyId, prev.thumbsId, prev.waveId].filter(Boolean);
+  for (const old of prev.retired || []) await G.trashFile(old).catch(() => {});
+  state.retired = retire;
   Object.assign(state, {
     status: 'done', pct: 100, proxyId: p.id, proxySize: fs.statSync(proxy).size, thumbsId: t.id,
     waveId: wv ? wv.id : null, waveRate: WAVE_RATE,

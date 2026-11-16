@@ -161,22 +161,31 @@
     video.addEventListener("seeked", function () { if (!self.playing) self.onTick(self.getT()); });
   }
   // Several recordings play as one timeline: each is its own file, one after another
-  Player.prototype.parts = function () { return S.parts && S.parts.length > 1 ? S.parts : null; };
+  // A part is a whole file, or (for an already-joined preview) a stretch of one file starting at `from`
+  Player.prototype.parts = function () { return S.parts && (S.parts.length > 1 || S.parts[0].from) ? S.parts : null; };
   function partStart(j) { var o = 0; for (var i = 0; i < j; i++) o += S.parts[i].dur; return o; }
   function partAt(x) { var o = 0; for (var i = 0; i < S.parts.length; i++) { if (x < o + S.parts[i].dur || i === S.parts.length - 1) return i; o += S.parts[i].dur; } return 0; }
   Player.prototype.getT = function () {
     if (S.demo) return this.clock;
     var ps = this.parts();
-    return (ps ? partStart(Math.min(this.pi, ps.length - 1)) : 0) + (this.v.currentTime || 0);
+    if (!ps) return this.v.currentTime || 0;
+    var j = Math.min(this.pi, ps.length - 1);
+    return partStart(j) + Math.max(0, (this.v.currentTime || 0) - (ps[j].from || 0));
   };
   Player.prototype.load = function (j, local, play) {
     var self = this, v = this.v, ps = this.parts();
     if (!ps || !ps[j]) return;
-    var resume = play != null ? play : this.playing;
-    this.pi = j; this.switching = true;
+    var resume = play != null ? play : this.playing, at = (ps[j].from || 0) + Math.max(0, local);
+    this.pi = j;
+    if (v.getAttribute("src") === ps[j].url && v.readyState > 0) {
+      try { v.currentTime = at; } catch (e) {}
+      if (resume && v.paused) { var pp = v.play(); if (pp && pp.catch) pp.catch(function () {}); }
+      this.onTick(this.getT()); return;
+    }
+    this.switching = true;
     var done = function () {
       v.removeEventListener("loadedmetadata", done);
-      try { v.currentTime = Math.max(0, local); } catch (e) {}
+      try { v.currentTime = at; } catch (e) {}
       self.switching = false;
       if (resume) { var p = v.play(); if (p && p.catch) p.catch(function () {}); }
       self.onTick(self.getT());
@@ -191,7 +200,7 @@
     else if (ps) {
       var j = partAt(x), local = Math.min(x - partStart(j), ps[j].dur - 0.001);
       if (j !== this.pi || this.v.getAttribute("src") !== ps[j].url) this.load(j, local);
-      else { try { this.v.currentTime = local; } catch (e) {} }
+      else { try { this.v.currentTime = (ps[j].from || 0) + local; } catch (e) {} }
     } else { try { this.v.currentTime = x; } catch (e) {} }
     this.onTick(x);
   };
@@ -212,6 +221,15 @@
         var dt = Math.min(0.25, (ts - self.last) / 1000); self.last = ts;
         self.clock = Math.min(S.dur, self.clock + dt);
         if (self.clock >= S.dur) { self.playing = false; self.onUi(false); }
+      }
+      // Stretches of one file: move on when this one's time is up
+      var ps = !S.demo && !self.switching ? self.parts() : null;
+      if (ps) {
+        var cp = ps[Math.min(self.pi, ps.length - 1)];
+        if ((self.v.currentTime || 0) >= (cp.from || 0) + cp.dur - 0.02) {
+          if (self.pi < ps.length - 1) self.load(self.pi + 1, 0, true);
+          else { self.pause(); self.setT(S.dur); return; }
+        }
       }
       var t = self.getT(), r = removedAt(t, self.segsFn());
       if (r) { if (r.b >= S.dur - 0.01) { self.setT(S.dur); self.pause(); return; } self.setT(r.b); t = r.b; }
@@ -887,7 +905,7 @@
     }
     serviceWorker().then(function () {
       setSource("/media/" + p.proxyId + "?size=" + (p.proxySize || 0) + "&type=video%2Fmp4");
-      S.parts = null;
+      S.parts = null; S.awaitJoin = false;
       vid.onloadedmetadata = function () {
         vid.onloadedmetadata = null;
         if (isFinite(vid.duration) && vid.duration > 0 && !S.dur) { S.dur = vid.duration; }
@@ -1140,7 +1158,7 @@
           cur = j; off = o;
           await once(tv, "loadeddata", 10000);
         }
-        try { tv.currentTime = Math.max(0, T - off); } catch (e) {}
+        try { tv.currentTime = (parts[j].from || 0) + Math.max(0, T - off); } catch (e) {}
         await once(tv, "seeked", 8000);
         try {
           var vw = tv.videoWidth || 16, vh = tv.videoHeight || 9, sr = vw / vh, tr = 192 / 108, sx = 0, sy = 0, sw = vw, sh = vh;
@@ -1157,12 +1175,32 @@
 
   /* ---------- Several recordings, back to back ---------- */
   // Where each recording starts on the timeline
-  function clipStarts() {
-    var durs = S.parts && S.parts.length > 1 ? S.parts.map(function (p) { return p.dur; }) : (S.msg && S.msg.preview && S.msg.preview.clipDurs) || null;
-    if (!durs || durs.length < 2) return [0];
-    var o = 0; return durs.map(function (d) { var s = o; o += d; return s; });
+  function clipDurs() {
+    if (S.parts && S.parts.length > 1) return S.parts.map(function (p) { return p.dur; });
+    var d = S.msg && S.msg.preview && S.msg.preview.clipDurs;
+    return d && d.length > 1 ? d : [S.dur];
   }
-  function clipNames() { return S.msg ? [S.msg.file.name].concat((S.msg.clips || []).map(function (c) { return c.name; })) : S.file ? [S.file.name] : []; }
+  function clipStarts() { var o = 0; return clipDurs().map(function (d) { var s = o; o += d; return s; }); }
+  // Recordings in the order they play: { sid: position as stored (0 = first upload), name, up: upload details }
+  function playClips() {
+    if (!S.msg) return S.file ? [{ sid: 0, name: S.file.name, up: null }] : [];
+    var stored = [{ sid: 0, name: S.msg.file.name, up: S.msg.original }].concat((S.msg.clips || []).map(function (c, i) { return { sid: i + 1, name: c.name, up: c }; }));
+    var order = S.parts && S.parts.length > 1 ? S.parts.map(function (p) { return p.sid; }) : S.msg.order || stored.map(function (x) { return x.sid; });
+    return order.map(function (i) { return stored[i]; }).filter(Boolean);
+  }
+  function clipNames() { return playClips().map(function (c) { return c.name; }); }
+  // A gentle colour per recording, which stays with it when the order changes
+  var CLIP_COLORS = ["#4f7cff", "#f59e0b", "#14b8a6", "#a855f7", "#f43f5e", "#22c55e", "#0ea5e9", "#eab308", "#ec4899", "#64748b"];
+  function clipColor(sid) { return CLIP_COLORS[sid % CLIP_COLORS.length]; }
+  // Clips as separate parts on this screen, so they can be moved or removed (a joined preview is split by time)
+  function ensureParts() {
+    if (S.parts) return;
+    var pc = playClips(), durs = clipDurs();
+    if (durs.length > 1 && durs.length === pc.length) {
+      var o = 0;
+      S.parts = durs.map(function (d, i) { var p = { url: S.src, from: o, dur: d, name: pc[i].name, sid: pc[i].sid }; o += d; return p; });
+    } else S.parts = [{ url: S.url || S.src, from: 0, dur: S.dur, name: (pc[0] || {}).name, sid: 0 }];
+  }
   function localDuration(file) {
     return new Promise(function (res) {
       var u = URL.createObjectURL(file), t = document.createElement("video"); t.preload = "metadata"; t.muted = true;
@@ -1193,11 +1231,12 @@
     return localDuration(file).then(function (r) {
       if (!r.dur) { clipErr(file.name + " can't play in this browser, so it can't be added here. Try an MP4."); try { URL.revokeObjectURL(r.url); } catch (e) {} return; }
       var before = S.dur;
-      if (!S.parts) S.parts = [{ url: S.url || S.src, dur: before, name: clipNames()[0] }];
+      ensureParts();
       return api("POST", "/messages/" + S.msg.id + "/clips", { name: file.name, size: file.size, type: file.type || "video/mp4", duration: r.dur, totalDuration: before + r.dur }).then(function (j) {
         mergeView(j.message);
-        S.parts.push({ url: r.url, dur: r.dur, name: file.name });
+        S.parts.push({ url: r.url, from: 0, dur: r.dur, name: file.name, sid: j.idx + 1 });
         S.clipFiles[j.idx] = file;
+        if (!S.url) S.awaitJoin = true;
         S.dur = before + r.dur;
         // Everything in the new clip is kept; earlier undo steps no longer fit the longer timeline
         if (S.segs) { var last = S.segs[S.segs.length - 1]; if (last.t === "keep") last.b = S.dur; else S.segs.push({ a: before, b: S.dur, t: "keep", s: true }); }
@@ -1210,8 +1249,9 @@
   }
   // Removing a clip takes its part of the timeline (and any cuts in it) out
   function removeClip(j) {
-    if (!S.parts || j < 1 || !S.msg) return;
-    var a = clipStarts()[j], len = S.parts[j].dur, b = a + len;
+    ensureParts();
+    if (!S.parts || !S.parts[j] || S.parts[j].sid === 0 || !S.msg) return;
+    var sid = S.parts[j].sid, a = clipStarts()[j], len = S.parts[j].dur, b = a + len;
     var segs = S.segs ? [] : null;
     if (S.segs) S.segs.forEach(function (s) {
       var parts = [];
@@ -1222,32 +1262,81 @@
     if (segs && segs.length && segs[0]) delete segs[0].s;
     if (segs && (!segs.length || (segs.length === 1 && segs[0].t === "keep"))) segs = null;
     edP.pause(); rvP.pause();
-    try { URL.revokeObjectURL(S.parts[j].url); } catch (e) {}
+    if (S.parts[j].url.indexOf("blob:") === 0) { try { URL.revokeObjectURL(S.parts[j].url); } catch (e) {} }
     S.parts.splice(j, 1);
-    var files = {}; Object.keys(S.clipFiles).forEach(function (k) { k = +k; if (k < j - 1) files[k] = S.clipFiles[k]; else if (k > j - 1) files[k - 1] = S.clipFiles[k]; });
+    // Stored positions after this one move down by one
+    S.parts.forEach(function (p) { if (p.sid > sid) p.sid--; });
+    var files = {}; Object.keys(S.clipFiles).forEach(function (k) { k = +k; if (k < sid - 1) files[k] = S.clipFiles[k]; else if (k > sid - 1) files[k - 1] = S.clipFiles[k]; });
     S.clipFiles = files;
+    if (!S.url) S.awaitJoin = true;
     S.dur -= len; S.segs = segs; S.sel = null; S.inPt = S.outPt = null; S.undo = []; S.redo = [];
-    if (S.parts.length === 1 && S.url) S.parts = null;
+    if (S.parts.length === 1 && !S.parts[0].from) S.parts = null;
     // The sound wave and transcript are remade for the new set of recordings
     S.wave = null; S.waveId = null; S.tr = null; S.trId = null; resetTranscript();
     edP.setT(Math.min(edP.getT(), S.dur));
     drawTL(); renderEditHeader(); updateZoomUi(); makeThumbs(); drawTrNote();
-    api("DELETE", "/messages/" + S.msg.id + "/clips/" + (j - 1), { totalDuration: S.dur }).then(function (v) { mergeView(v); lastSaved = ""; flushSave(); drawClips(); poll(); }, function (e) { clipErr(msgOf(e)); });
+    api("DELETE", "/messages/" + S.msg.id + "/clips/" + (sid - 1), { totalDuration: S.dur }).then(function (v) { mergeView(v); lastSaved = ""; flushSave(); drawClips(); poll(); }, function (e) { clipErr(msgOf(e)); });
+  }
+  // Move a recording earlier or later. Its cuts travel with it.
+  function moveClip(j, dir) {
+    if (isLocked()) { nudgeLock(); return; }
+    ensureParts();
+    var k = j + dir;
+    if (!S.parts || !S.parts[j] || !S.parts[k] || S.up.active) return;
+    var starts = clipStarts();
+    // Cuts, clip by clip, measured from each clip's own start
+    var per = S.parts.map(function () { return []; });
+    if (S.segs) S.segs.forEach(function (s) {
+      S.parts.forEach(function (p, i) {
+        var a = Math.max(s.a, starts[i]), b = Math.min(s.b, starts[i] + p.dur);
+        if (b - a > 0.0005) per[i].push({ a: a - starts[i], b: b - starts[i], t: s.t, s: s.s && a === s.a });
+      });
+    });
+    var order = S.parts.map(function (_, i) { return i; });
+    order[j] = k; order[k] = j;
+    var parts = order.map(function (i) { return S.parts[i]; }), segs = S.segs ? [] : null, o = 0;
+    order.forEach(function (i, pos) {
+      per[i].forEach(function (s) { var x = { a: s.a + o, b: s.b + o, t: s.t }; if (s.s) x.s = true; segs.push(x); });
+      o += S.parts[i].dur;
+    });
+    if (segs) {
+      // Same kind on both sides of the new join merges back into one section
+      var merged = [];
+      // (a split you made yourself stays)
+      segs.forEach(function (s) { var l = merged[merged.length - 1]; if (l && l.t === s.t && Math.abs(l.b - s.a) < 0.005 && !s.s) { l.b = s.b; } else merged.push(s); });
+      if (merged.length) delete merged[0].s;
+      segs = merged.length === 1 && merged[0].t === "keep" ? null : merged;
+    }
+    edP.pause(); rvP.pause();
+    var moved = S.parts[j];
+    S.parts = parts; S.segs = segs; S.sel = null; S.inPt = S.outPt = null; S.undo = []; S.redo = [];
+    if (!S.url) S.awaitJoin = true;
+    // The sound wave and transcript follow once the recordings are joined in the new order
+    S.wave = null; S.waveId = null; S.tr = null; S.trId = null; resetTranscript();
+    edP.pi = -1; rvP.pi = -1;
+    edP.setT(clipStarts()[k] + 1e-4);
+    drawTL(); renderVisible(); makeThumbs(); drawTrNote();
+    if (S.msg) api("POST", "/messages/" + S.msg.id + "/clip-order", { order: S.parts.map(function (p) { return p.sid; }), segs: S.segs })
+      .then(function (v) { mergeView(v); lastSaved = payload(); drawClips(); poll(); }, function (e) { clipErr(msgOf(e)); });
+    $("#hint").textContent = moved.name + " now plays " + (k === 0 ? "first" : k === S.parts.length - 1 ? "last" : "as clip " + (k + 1)) + ".";
   }
   function drawClips() {
     var el = $("#clipList"); if (!el) return;
-    var names = clipNames(), starts = clipStarts(), m = S.msg;
-    var durs = S.parts && S.parts.length > 1 ? S.parts.map(function (p) { return p.dur; }) : (m && m.preview && m.preview.clipDurs) || [S.dur];
-    var canEdit = !S.demo && m && m.status !== "published" && !isLocked() && !S.up.active;
-    var canRemove = canEdit && S.parts && S.parts.length > 1;
-    el.innerHTML = names.map(function (n, i) {
-      var up = i === 0 ? m && m.original : m && m.clips && m.clips[i - 1];
+    var pc = playClips(), m = S.msg, durs = clipDurs();
+    var many = pc.length > 1 && durs.length === pc.length;
+    var canEdit = !S.demo && m && m.status !== "published" && !isLocked() && !S.up.active && !!S.src;
+    var canRemove = canEdit && many;
+    var UP = '<svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 10 3.5-3.5 3.5 3.5"></path></svg>', DOWN = '<svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 6.5 3.5 3.5 3.5-3.5"></path></svg>';
+    el.innerHTML = pc.map(function (c, i) {
+      var n = c.name, up = c.up;
       var st = up && !up.uploaded ? (S.up.active ? "Uploading" : "Not uploaded") : fmt(durs[i] || 0);
       if (S.clipAsk === i) return '<div class="clip-confirm"><span>Remove clip ' + (i + 1) + "? Its part of the timeline and any cuts in it go too.</span>" +
         '<span style="display: flex; gap: 8px;"><button class="btn" data-clip-no>Cancel</button><button class="btn danger" data-clip-yes="' + i + '">Remove</button></span></div>';
-      return '<div class="clip-item"><span class="n">' + (i + 1) + '</span><span class="nm" title="' + esc(n) + '">' + esc(n) + '</span><span class="st">' + esc(st) + "</span>" +
-        (i > 0 && canRemove ? '<button class="icon-btn sm" data-clip-x="' + i + '" aria-label="Remove clip ' + (i + 1) + '" title="Remove"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 4.5 7 7M11.5 4.5l-7 7"></path></svg></button>' : "") + "</div>";
+      var x = canRemove && c.sid !== 0 ? '<button class="icon-btn sm" data-clip-x="' + i + '" aria-label="Remove clip ' + (i + 1) + '" title="Remove"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 4.5 7 7M11.5 4.5l-7 7"></path></svg></button>' : "";
+      var mv = canEdit && many ? '<span class="mv"><button class="icon-btn sm" data-clip-mv="' + i + ':-1" aria-label="Move clip ' + (i + 1) + ' earlier" title="Play earlier"' + (i === 0 ? " disabled" : "") + ">" + UP + '</button><button class="icon-btn sm" data-clip-mv="' + i + ':1" aria-label="Move clip ' + (i + 1) + ' later" title="Play later"' + (i === pc.length - 1 ? " disabled" : "") + ">" + DOWN + "</button></span>" : "";
+      return '<div class="clip-item"><span class="n"' + (many ? ' style="--c:' + clipColor(c.sid) + '"' : ' style="--c:var(--ink-2)"') + ">" + (i + 1) + '</span><span class="nm" title="' + esc(n) + '">' + esc(n) + '</span><span class="st">' + esc(st) + "</span>" + mv + x + "</div>";
     }).join("");
+    $$("[data-clip-mv]", el).forEach(function (b) { b.addEventListener("click", function () { var v = b.dataset.clipMv.split(":"); moveClip(+v[0], +v[1]); }); });
     $$("[data-clip-x]", el).forEach(function (b) { b.addEventListener("click", function () { S.clipAsk = +b.dataset.clipX; drawClips(); }); });
     var no = $("[data-clip-no]", el); if (no) no.addEventListener("click", function () { S.clipAsk = null; drawClips(); });
     var yes = $("[data-clip-yes]", el); if (yes) yes.addEventListener("click", function () { var j = +yes.dataset.clipYes; S.clipAsk = null; removeClip(j); });
@@ -1346,7 +1435,13 @@
       });
     }
     if (S.inPt != null && S.outPt != null) h += '<div class="pending" style="left:' + P(S.inPt) + "%;width:" + P(S.outPt - S.inPt) + '%"></div>';
-    clipStarts().forEach(function (c, i) { if (i > 0 && c < S.dur) h += '<div class="clipmark" style="left:' + P(c) + '%"><span>Clip ' + (i + 1) + "</span></div>"; });
+    var cs = clipStarts(), cd = clipDurs(), pcs = playClips();
+    if (cs.length > 1) {
+      var tint = "";
+      cs.forEach(function (c, i) { var col = clipColor(pcs[i] ? pcs[i].sid : i); tint += '<div class="cliptint" style="left:' + P(c) + "%;width:" + P(cd[i]) + "%;--c:" + col + '"></div>'; });
+      h += tint;
+      cs.forEach(function (c, i) { if (i > 0 && c < S.dur) h += '<div class="clipmark" style="left:' + P(c) + "%;--c:" + clipColor(pcs[i] ? pcs[i].sid : i) + '"><span>Clip ' + (i + 1) + "</span></div>"; });
+    }
     if (S.inPt != null) h += '<div class="mark in" style="left:' + P(S.inPt) + '%"><span>IN</span></div>';
     if (S.outPt != null) h += '<div class="mark out" style="left:' + P(S.outPt) + '%"><span>OUT</span></div>';
     $("#ovl").innerHTML = h;
@@ -1530,6 +1625,59 @@
     }
   }
   inner.addEventListener("pointerup", endPointer);
+
+  // Right-click (or Control-click) on the timeline: Remove, Keep, Split here, and moving a recording
+  var ctxEl = null;
+  function closeCtx() { if (ctxEl) { ctxEl.remove(); ctxEl = null; } }
+  // What a right-click points at: the marked range, else the section, else the recording under the pointer
+  function ctxTarget(t) {
+    if (S.inPt != null && S.outPt != null && t >= S.inPt && t <= S.outPt) return { a: S.inPt, b: S.outPt, label: "Marked range" };
+    if (S.segs) { var s = S.segs.find(function (x) { return t >= x.a && t < x.b; }); if (s) return { a: s.a, b: s.b, label: "This section", cur: s.t }; }
+    var cs = clipStarts(), cd = clipDurs();
+    if (cs.length > 1) for (var i = 0; i < cs.length; i++) if (t >= cs[i] && t < cs[i] + cd[i]) return { a: cs[i], b: cs[i] + cd[i], label: "Clip " + (i + 1), cur: "keep" };
+    return null;
+  }
+  inner.addEventListener("contextmenu", function (e) {
+    if (!S.dur || S.view !== "edit") return;
+    e.preventDefault();
+    closeCtx(); closePubMenu && closePubMenu();
+    var t = timeAt(e.clientX), tg = ctxTarget(t), locked = isLocked();
+    var cs = clipStarts(), ci = 0; for (var i = 0; i < cs.length; i++) if (t >= cs[i]) ci = i;
+    var many = cs.length > 1;
+    var h = '<div class="ctx-h">' + esc(tg ? tg.label + " · " + fmt(tg.a) + " – " + fmt(tg.b) : "At " + fmt(t, 2)) + "</div>";
+    if (locked) h += '<button type="button" data-cx="unlock">Unlock editing</button><hr>';
+    h += '<button type="button" class="rm" data-cx="remove"' + (!tg || locked || tg.cur === "remove" ? " disabled" : "") + ">Remove <kbd>R</kbd></button>";
+    h += '<button type="button" data-cx="keep"' + (!tg || locked || tg.cur === "keep" ? " disabled" : "") + ">Keep <kbd>K</kbd></button>";
+    h += '<button type="button" data-cx="split"' + (locked ? " disabled" : "") + ">Split here <kbd>S</kbd></button>";
+    if (many) {
+      h += "<hr>";
+      h += '<button type="button" data-cx="earlier"' + (locked || ci === 0 || S.up.active ? " disabled" : "") + ">Move clip " + (ci + 1) + " earlier</button>";
+      h += '<button type="button" data-cx="later"' + (locked || ci === cs.length - 1 || S.up.active ? " disabled" : "") + ">Move clip " + (ci + 1) + " later</button>";
+    }
+    var m = document.createElement("div"); m.className = "ctx"; m.setAttribute("role", "menu"); m.innerHTML = h;
+    document.body.appendChild(m); ctxEl = m;
+    var w = m.offsetWidth, hh = m.offsetHeight;
+    m.style.left = Math.min(e.clientX, innerWidth - w - 8) + "px";
+    m.style.top = (e.clientY + hh + 8 > innerHeight ? Math.max(8, e.clientY - hh) : e.clientY) + "px";
+    $$("[data-cx]", m).forEach(function (b) {
+      b.addEventListener("click", function () {
+        var k = b.dataset.cx; closeCtx();
+        if (k === "unlock") { S.unlocked = true; drawTL(); return; }
+        if (k === "split") { edP.pause(); edP.setT(t); split(); return; }
+        if (k === "earlier" || k === "later") { moveClip(ci, k === "earlier" ? -1 : 1); return; }
+        if (!tg) return;
+        paint(tg.a, tg.b, k);
+        S.inPt = S.outPt = null;
+        var mid = (tg.a + tg.b) / 2, sec = S.segs && S.segs.find(function (x) { return mid >= x.a && mid <= x.b; });
+        S.sel = sec ? { a: sec.a, b: sec.b } : null;
+        drawTL();
+      });
+    });
+  });
+  document.addEventListener("pointerdown", function (e) { if (ctxEl && !ctxEl.contains(e.target)) closeCtx(); }, true);
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeCtx(); });
+  window.addEventListener("blur", closeCtx);
+  tScroll.addEventListener("scroll", closeCtx);
   inner.addEventListener("pointercancel", endPointer);
 
   // Wheel: vertical scroll and trackpad pinch zoom; horizontal or Shift-scroll pans
@@ -1789,9 +1937,14 @@
         if (!v.preview.waveId) S.waveId = null;
         if (!v.preview.thumbsId) S.spriteId = null;
         if (v.preview.transcript && !v.preview.transcript.id) S.trId = null;
-        var mixed = S.parts && S.parts.length > 1 && !S.url;
+        var mixed = !!S.awaitJoin && !S.url;
         mergeView(v);
-        if (mixed && v.preview.proxyId && !v.preview.joining) { usePreview(v); drawTL(); }
+        if (mixed && v.preview.proxyId && !v.preview.joining) {
+          // Swap to the newly joined preview without losing the place (or stopping playback)
+          var keepT = edP.getT(), keepPlay = edP.playing;
+          vid.addEventListener("loadedmetadata", function () { edP.setT(keepT); if (keepPlay) edP.play(); }, { once: true });
+          usePreview(v); drawTL();
+        }
         if (mixed) { updateRender(); poll(); return; }
         if (!S.dur && v.duration) S.dur = v.duration;
         if (v.preview.waveId) loadWave(v.preview);

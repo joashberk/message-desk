@@ -28,13 +28,15 @@ function view(m) {
   return {
     id: m.id, file: m.file, duration: m.duration, source: m.source || null, importing: m.importing || null, original: { uploaded: m.original.uploaded, sessionUrl: m.original.uploaded ? null : m.original.sessionUrl },
     notes: m.notes.map((n) => ({ name: n.name, size: n.size, type: n.type, uploaded: n.uploaded, sessionUrl: n.uploaded ? null : n.sessionUrl })),
+    order: m.order || [0, ...(m.clips || []).map((_, i) => i + 1)],
     clips: (m.clips || []).map((c) => ({ name: c.name, size: c.size, type: c.type, duration: c.duration, uploaded: c.uploaded, sessionUrl: c.uploaded ? null : c.sessionUrl })),
     d: m.d, segs: m.segs, fps: m.prepare.fps || m.fps, renderSegs: m.renderSegs, renderRequested: !!m.renderRequestId, status: m.status,
     filing: m.filing, webflow: m.webflow, preview: m.prepare.key && m.prepare.key !== clipsKey(m) ? { status: 'queued', pct: 0, joining: true, transcript: { status: 'queued', pct: 0, id: null } } : m.prepare, render: m.render, updatedAt: m.updatedAt
   };
 }
 
-const clipsKey = (m) => [m.original.token, ...(m.clips || []).map((c) => c.token)].join(',');
+const playList = (m) => { const all = [m.original, ...(m.clips || [])]; return (m.order && m.order.length === all.length ? m.order : all.map((_, i) => i)).map((i) => all[i]); };
+const clipsKey = (m) => playList(m).map((c) => c.token).join(',');
 const allUp = (m) => m.original.uploaded && (m.clips || []).every((c) => c.uploaded);
 function startPrepare(m) {
   const key = clipsKey(m);
@@ -45,7 +47,7 @@ function startPrepare(m) {
       let clipDurs = null;
       if ((m.clips || []).length) {
         // Join the clips back to back, as the real preview job does
-        const files = [src, ...m.clips.map((c) => uploads.get(c.token).file)];
+        const files = playList(m).map((c) => uploads.get(c.token).file);
         clipDurs = files.map((f) => parseFloat(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', f], { encoding: 'utf8' })));
         const list = path.join(dir, m.id + '-clips.txt'), joined = path.join(dir, m.id + '-joined-' + Date.now() + '.mp4');
         fs.writeFileSync(list, files.map((f) => "file '" + f + "'").join('\n'));
@@ -64,8 +66,9 @@ function startPrepare(m) {
       const said = 'and so we come to the word today about faith and the deep waters of grace where we learn to trust what God is doing in the season ahead'.split(' ');
       fs.writeFileSync(tr, JSON.stringify({ words: Array.from({ length: Math.floor(m.duration / 0.45) }, (_, i) => [+(i * 0.45).toFixed(2), +(i * 0.45 + 0.4).toFixed(2), said[i % said.length]]) }));
       if (key !== clipsKey(m)) return; // clips changed meanwhile
-      m.prepare = { key, clipDurs, transcript: { status: 'done', pct: 100, id: 'tr-' + m.id }, status: 'done', pct: 100, waveId: 'w-' + m.id, waveRate: 50, proxyId: 'p-' + m.id, proxySize: fs.statSync(src).size, proxyType: 'video/mp4', thumbsId: 't-' + m.id, thumbs: { n, cols: 10, rows: 5, w: 160, h: 90 }, fps: 30, duration: m.duration };
-      m.files = { ['p-' + m.id]: src, ['t-' + m.id]: thumbs, ['w-' + m.id]: wave, ['tr-' + m.id]: tr };
+      const g = (m.gen = (m.gen || 0) + 1);
+      m.prepare = { key, clipDurs, transcript: { status: 'done', pct: 100, id: 'tr-' + m.id + '-' + g }, status: 'done', pct: 100, waveId: 'w-' + m.id + '-' + g, waveRate: 50, proxyId: 'p-' + m.id + '-' + g, proxySize: fs.statSync(src).size, proxyType: 'video/mp4', thumbsId: 't-' + m.id + '-' + g, thumbs: { n, cols: 10, rows: 5, w: 160, h: 90 }, fps: 30, duration: m.duration };
+      m.files = { ...(m.files || {}), ['p-' + m.id + '-' + g]: src, ['t-' + m.id + '-' + g]: thumbs, ['w-' + m.id + '-' + g]: wave, ['tr-' + m.id + '-' + g]: tr };
     } catch (e) { console.error(e.message); m.prepare = { status: 'error', pct: 0 }; }
   }, 1500 / SPEED);
 }
@@ -192,11 +195,20 @@ export default async function mock(req, res) {
       m.clips = m.clips || [];
       const c = { name: b.name, size: b.size, type: b.type, duration: b.duration, uploaded: false };
       c.sessionUrl = newUpload(m, 'clip', m.clips.length, b.size); c.token = c.sessionUrl.split('/').pop();
+      m.order = [...(m.order || [0, ...m.clips.map((_, i) => i + 1)]), m.clips.length + 1];
       m.clips.push(c); m.clipsChanged = true;
       if (b.totalDuration) m.duration = b.totalDuration;
       return send(res, 200, { idx: m.clips.length - 1, message: view(m) });
     }
+    if (a === 'clip-order') {
+      m.order = b.order.map(Number); m.clipsChanged = true;
+      if ('segs' in b) m.segs = b.segs;
+      if (allUp(m)) startPrepare(m);
+      return send(res, 200, view(m));
+    }
     if (a === 'clips' && req.method === 'DELETE') {
+      const gone = +parts[3] + 1;
+      m.order = (m.order || [0, ...m.clips.map((_, i) => i + 1)]).filter((v) => v !== gone).map((v) => (v > gone ? v - 1 : v));
       m.clips.splice(+parts[3], 1); m.clipsChanged = true;
       if (b.totalDuration) m.duration = b.totalDuration;
       if (allUp(m)) startPrepare(m);
