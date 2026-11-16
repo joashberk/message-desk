@@ -79,6 +79,57 @@ export async function uploadFromFile({ path, parentId, name, mimeType, fileId, o
   } finally { fs.closeSync(fd); }
 }
 
+// Downloads every recording of a post and lines them up back to back for ffmpeg.
+// One recording: { input: the file }. Several: a list ffmpeg reads as one continuous video
+// (the clips were made to match when the preview was prepared, see worker/prepare.js).
+export async function getSources(m, work, onProgress, { useConformed = true } = {}) {
+  const path = (await import('node:path')).default;
+  const M = await import('../lib/messages.js');
+  const clips = M.clipList(m);
+  const p = m.prepare || {};
+  const conformed = useConformed && p.clipsKey === M.clipsKey(m) && Array.isArray(p.conformed) && p.conformed.length === clips.length ? p.conformed : null;
+  const files = [];
+  const metas = [];
+  for (let i = 0; i < clips.length; i++) {
+    const id = conformed ? conformed[i] : clips[i].fileId;
+    if (!id) throw new Error('A recording has not finished uploading');
+    metas.push(await G.getFile(id));
+  }
+  const total = metas.reduce((t, f) => t + (+f.size || 0), 0);
+  let before = 0;
+  for (let i = 0; i < clips.length; i++) {
+    const ext = conformed ? 'mp4' : clips[i].ext || 'mov';
+    const dest = path.join(work, clips.length === 1 ? 'original.' + ext : 'clip-' + (i + 1) + '.' + ext);
+    const local = process.env.LOCAL_ORIGINAL;
+    if (i === 0 && clips.length === 1 && local && fs.existsSync(local) && fs.statSync(local).size === +metas[0].size) files.push(local);
+    else { await downloadToFile(metas[i].id, +metas[i].size, dest, (at) => onProgress && onProgress(before + at, total)); files.push(dest); }
+    before += +metas[i].size;
+  }
+  if (files.length === 1) return { input: files[0], inputArgs: [], files };
+  const list = path.join(work, 'clips.txt');
+  fs.writeFileSync(list, files.map((f) => "file '" + f.replace(/'/g, "'\\''") + "'").join('\n'));
+  return { input: list, inputArgs: ['-f', 'concat', '-safe', '0'], files };
+}
+
+// Length, frame rate and sound of the lined-up recordings (a joined list's total length is the clips' sum)
+export function probeSources(srcs) {
+  if (srcs.files.length === 1) return probe(srcs.files[0]);
+  const each = srcs.files.map((f) => probe(f));
+  return { ...each[0], duration: each.reduce((t, x) => t + x.duration, 0), hasAudio: each.every((x) => x.hasAudio), clipDurs: each.map((x) => x.duration) };
+}
+
+// Details that must match for clips to play back to back without re-encoding
+export function streamShape(file) {
+  const j = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-print_format', 'json', '-show_streams', file], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }));
+  const v = j.streams.find((s) => s.codec_type === 'video') || {};
+  const a = j.streams.find((s) => s.codec_type === 'audio');
+  return {
+    v: [v.codec_name, v.profile, v.width, v.height, v.pix_fmt, v.r_frame_rate, v.time_base].join('|'),
+    a: a ? [a.codec_name, a.sample_rate, a.channels].join('|') : 'none',
+    width: v.width, height: v.height, rate: v.r_frame_rate, hasAudio: !!a
+  };
+}
+
 export function probe(file, extra = []) {
   const j = JSON.parse(execFileSync('ffprobe', ['-v', 'error', ...extra, '-print_format', 'json', '-show_format', '-show_streams', file], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }));
   const v = j.streams.find((s) => s.codec_type === 'video');

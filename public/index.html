@@ -386,6 +386,15 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
 .dlg .err, #pubList .err { color: var(--red); font-size: 13px; }
 .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
+/* Several recordings back to back */
+.clipmark { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px solid rgba(255, 255, 255, .95); box-shadow: 0 0 0 1px rgba(0, 0, 0, .35); pointer-events: none; z-index: 2; }
+.clipmark span { position: absolute; left: 3px; bottom: 3px; font-size: 10px; line-height: 15px; padding: 0 5px; border-radius: 4px; background: rgba(0, 0, 0, .7); color: #fff; white-space: nowrap; }
+.clip-item { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 4px 6px 4px 10px; border-radius: 8px; font-size: 13px; }
+.clip-item .n { flex: none; width: 20px; height: 20px; border-radius: 6px; background: var(--sunken); color: var(--ink-2); display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; }
+.clip-item .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clip-item .st { flex: none; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.clip-confirm { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 8px; background: var(--sunken); font-size: 13px; }
+
 /* Side panel tabs and transcript */
 .panel { overflow: hidden; }
 .ptabs { flex: none; display: flex; gap: 4px; padding: 10px 12px 0; box-shadow: 0 1px 0 var(--line); }
@@ -560,6 +569,8 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
               </span>
             </div>
             <div class="grp r">
+              <button class="btn" id="addClipBtn" title="Add another recording after this one"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="3.5" width="9" height="9" rx="2"></rect><path d="m10.75 7 3.5-2v6l-3.5-2"></path><path d="M6.25 6v4M4.25 8h4"></path></svg>Add clip</button>
+              <input type="file" id="clipIn" accept="video/*,.mov,.mp4,.m4v" multiple hidden>
               <span class="zoom" role="group" aria-label="Timeline zoom">
                 <button class="icon-btn" id="zOut" aria-label="Zoom out" title="Zoom out (⌘ −)"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"></circle><path d="m10.5 10.5 3 3M5 7h4"></path></svg></button>
                 <button class="lvl link" id="zFit" title="Fit the whole recording (⌘ 0)" style="color: var(--muted);">Fit</button>
@@ -612,6 +623,12 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
           <div class="tr-body" id="trBody"></div>
         </div>
         <div class="ppane" id="paneEd" role="tabpanel" aria-labelledby="tabEd" hidden>
+        <div class="psec" id="clipsSec">
+          <h3>Recordings</h3>
+          <div id="clipList" style="display: flex; flex-direction: column; gap: 2px;"></div>
+          <div><button class="btn" id="addClipBtn2"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="3.5" width="9" height="9" rx="2"></rect><path d="m10.75 7 3.5-2v6l-3.5-2"></path><path d="M6.25 6v4M4.25 8h4"></path></svg>Add clip</button></div>
+          <p class="fine">Clips play back to back, in this order, as one video.</p>
+        </div>
         <div class="psec">
           <h3>Sections</h3>
           <div id="cutList" style="display: flex; flex-direction: column; gap: 2px;"></div>

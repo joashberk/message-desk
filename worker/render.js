@@ -11,7 +11,7 @@ import * as N from '../lib/naming.js';
 import { vimeo, videoIdFromUri } from '../lib/vimeo.js';
 import { notify, emailTeam } from '../lib/notify.js';
 import { buildRenderArgs, planChunks, keepRanges } from '../lib/cut.js';
-import { downloadToFile, uploadFromFile, probe, ffmpeg, throttled, log, freeDisk } from './common.js';
+import { downloadToFile, uploadFromFile, probe, probeSources, ffmpeg, throttled, log, freeDisk, getSources } from './common.js';
 
 const id = process.argv[2] || process.env.MESSAGE_ID;
 const requestId = process.argv[3] || process.env.REQUEST_ID;
@@ -87,17 +87,28 @@ const out = (k, v) => { if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process
 
 async function begin(fresh) {
   m = await stillCurrent();
-  if (!m.edit.original.uploaded || !m.edit.original.fileId) throw new Error('The recording has not finished uploading');
+  if (!M.allUploaded(m)) throw new Error('The recording has not finished uploading');
   state = fresh ? { ...(m.render || {}), requestId, status: 'running', pct: 1, stage: 'Rendering', error: null, startedAt: new Date().toISOString() } : { ...m.render };
   save = dry ? async () => {} : throttled(async () => { m.ids.render = await G.writeJson(m.id, 'render.json', state, m.ids.render); });
 }
 
+// Every recording of the post, lined up back to back ({ input, inputArgs } for ffmpeg)
 async function getOriginal(onProgress) {
-  const orig = await G.getFile(m.edit.original.fileId);
-  log('original', Math.round(orig.size / 1e6), 'MB; free disk', Math.round(freeDisk() / 1e9), 'GB');
-  const src = path.join(work, 'original.' + m.edit.file.ext);
-  await downloadToFile(orig.id, +orig.size, src, onProgress);
-  return src;
+  log('free disk', Math.round(freeDisk() / 1e9), 'GB');
+  return getSources(m, work, onProgress);
+}
+
+// Several recordings: the preview job joins them (and makes them match), so the render waits for it.
+async function joinedInfo() {
+  for (let i = 0; i < 180; i++) {
+    const fresh = await stillCurrent();
+    const p = fresh.prepare || {};
+    if (p.status === 'done' && p.clipsKey === M.clipsKey(fresh)) { m = fresh; return { duration: p.duration, fps: p.fps, width: p.width, height: p.height, hasAudio: true }; }
+    if (p.status === 'error') throw new Error('The clips could not be joined');
+    if (i === 0) log('waiting for the clips to be joined');
+    await sleep(30000);
+  }
+  throw new Error('Joining the clips took too long');
 }
 
 // Probes the recording in Drive without downloading all of it.
@@ -121,7 +132,7 @@ async function runFfmpeg(args, onSeconds) {
 async function plan() {
   await begin(true);
   await save(true);
-  const info = await probeRemote();
+  const info = M.clipList(m).length > 1 ? await joinedInfo() : await probeRemote();
   log('probe', info);
   if (!info.hasAudio) throw new Error('The recording has no sound, so no audio file could be made');
   const chunks = planChunks(m.edit.renderSegs, info.duration, info.fps, { target: 600, max: 10 });
@@ -149,7 +160,7 @@ async function piece() {
   await mark(true);
   const src = await getOriginal((at, size) => { pct = Math.floor(at / size * 25); mark(); });
   const outMp4 = path.join(work, 'piece-' + String(i).padStart(3, '0') + '.mp4');
-  const { args, kept } = buildRenderArgs({ input: src, outMp4, segs, dur: info.duration, fps: info.fps, hasAudio: false, parts: 'video' });
+  const { args, kept } = buildRenderArgs({ input: src.input, inputArgs: src.inputArgs, outMp4, segs, dur: info.duration, fps: info.fps, hasAudio: false, parts: 'video' });
   await runFfmpeg(args, (t) => { pct = 25 + Math.floor(Math.min(1, t / kept) * 75); mark(); });
   await savePart(outMp4, 'part-' + String(i).padStart(3, '0') + '.mp4', 'video/mp4');
   pct = 100; await mark(true);
@@ -165,7 +176,7 @@ async function audio() {
   await mark(true);
   const src = await getOriginal((at, size) => { pct = Math.floor(at / size * 40); mark(); });
   const kept = keepRanges(m.edit.renderSegs, info.duration).reduce((t, [a, b]) => t + b - a, 0);
-  const { args } = buildRenderArgs({ input: src, outAudio: path.join(work, 'final.m4a'), outMp3: path.join(work, 'final.mp3'), segs: m.edit.renderSegs, dur: info.duration, fps: info.fps, parts: 'audio' });
+  const { args } = buildRenderArgs({ input: src.input, inputArgs: src.inputArgs, outAudio: path.join(work, 'final.m4a'), outMp3: path.join(work, 'final.mp3'), segs: m.edit.renderSegs, dur: info.duration, fps: info.fps, parts: 'audio' });
   await runFfmpeg(args, (t) => { pct = 40 + Math.floor(Math.min(1, t / kept) * 60); mark(); });
   await savePart(path.join(work, 'final.m4a'), 'part-sound.m4a', 'audio/mp4');
   await savePart(path.join(work, 'final.mp3'), 'part-sound.mp3', 'audio/mpeg');
@@ -206,13 +217,13 @@ async function all() {
   await begin(true);
   await save(true);
   const src = await getOriginal((at, size) => { state.pct = 1 + Math.floor(at / size * 9); save(); });
-  const info = probe(src);
+  const info = probeSources(src);
   log('probe', info);
   if (!info.hasAudio) throw new Error('The recording has no sound, so no audio file could be made');
   const outMp4 = path.join(work, 'final.mp4'), outMp3 = path.join(work, 'final.mp3');
-  const { args, kept } = buildRenderArgs({ input: src, outMp4, outMp3, segs: m.edit.renderSegs, dur: info.duration, fps: info.fps });
+  const { args, kept } = buildRenderArgs({ input: src.input, inputArgs: src.inputArgs, outMp4, outMp3, segs: m.edit.renderSegs, dur: info.duration, fps: info.fps });
   await runFfmpeg(args, (t) => { state.pct = 10 + Math.floor(Math.min(1, t / kept) * 40); save(); });
-  fs.unlinkSync(src);
+  for (const f of src.files) fs.rmSync(f, { force: true });
   state.duration = kept;
   await deliver(outMp4, outMp3);
 }

@@ -36,7 +36,7 @@ env:
 jobs:
   plan:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 100
     outputs:
       chunks: ${{ steps.plan.outputs.chunks }}
       info: ${{ steps.plan.outputs.info }}

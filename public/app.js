@@ -149,16 +149,50 @@
   function Player(video, onTick, onUi, segsFn) {
     var self = this;
     this.v = video; this.onTick = onTick; this.onUi = onUi; this.segsFn = segsFn;
-    this.clock = 0; this.playing = false; this.last = 0; this.raf = 0;
+    this.clock = 0; this.playing = false; this.last = 0; this.raf = 0; this.pi = 0; this.switching = false;
     video.addEventListener("play", function () { if (!S.demo) { self.playing = true; self.loop(); self.onUi(true); } });
-    video.addEventListener("pause", function () { if (!S.demo) { self.playing = false; self.onUi(false); self.onTick(self.getT()); } });
-    video.addEventListener("ended", function () { self.playing = false; self.onUi(false); });
+    video.addEventListener("pause", function () { if (!S.demo && !self.switching) { self.playing = false; self.onUi(false); self.onTick(self.getT()); } });
+    video.addEventListener("ended", function () {
+      // Several recordings: carry straight on into the next one
+      var ps = self.parts();
+      if (ps && self.pi < ps.length - 1) { self.load(self.pi + 1, 0, true); return; }
+      self.playing = false; self.onUi(false);
+    });
     video.addEventListener("seeked", function () { if (!self.playing) self.onTick(self.getT()); });
   }
-  Player.prototype.getT = function () { return S.demo ? this.clock : (this.v.currentTime || 0); };
+  // Several recordings play as one timeline: each is its own file, one after another
+  Player.prototype.parts = function () { return S.parts && S.parts.length > 1 ? S.parts : null; };
+  function partStart(j) { var o = 0; for (var i = 0; i < j; i++) o += S.parts[i].dur; return o; }
+  function partAt(x) { var o = 0; for (var i = 0; i < S.parts.length; i++) { if (x < o + S.parts[i].dur || i === S.parts.length - 1) return i; o += S.parts[i].dur; } return 0; }
+  Player.prototype.getT = function () {
+    if (S.demo) return this.clock;
+    var ps = this.parts();
+    return (ps ? partStart(Math.min(this.pi, ps.length - 1)) : 0) + (this.v.currentTime || 0);
+  };
+  Player.prototype.load = function (j, local, play) {
+    var self = this, v = this.v, ps = this.parts();
+    if (!ps || !ps[j]) return;
+    var resume = play != null ? play : this.playing;
+    this.pi = j; this.switching = true;
+    var done = function () {
+      v.removeEventListener("loadedmetadata", done);
+      try { v.currentTime = Math.max(0, local); } catch (e) {}
+      self.switching = false;
+      if (resume) { var p = v.play(); if (p && p.catch) p.catch(function () {}); }
+      self.onTick(self.getT());
+    };
+    v.addEventListener("loadedmetadata", done);
+    v.src = ps[j].url;
+  };
   Player.prototype.setT = function (x) {
     x = Math.min(Math.max(0, x), S.dur || 0);
-    if (S.demo) this.clock = x; else { try { this.v.currentTime = x; } catch (e) {} }
+    var ps = this.parts();
+    if (S.demo) this.clock = x;
+    else if (ps) {
+      var j = partAt(x), local = Math.min(x - partStart(j), ps[j].dur - 0.001);
+      if (j !== this.pi || this.v.getAttribute("src") !== ps[j].url) this.load(j, local);
+      else { try { this.v.currentTime = local; } catch (e) {} }
+    } else { try { this.v.currentTime = x; } catch (e) {} }
     this.onTick(x);
   };
   Player.prototype.play = function () {
@@ -365,7 +399,10 @@
     var known = lsGet("files", {})[fileKey(v[0])];
     var match = S.list.filter(function (m) { return m.id === known || (m.file && m.file.name === v[0].name && m.file.size === v[0].size); })[0];
     if (match) { openMessage(match.id, v[0], notes); return; }
+    // Several recordings at once: in name order, the first starts the post and the rest follow it
+    v.sort(function (a, b) { return a.name.localeCompare(b.name, undefined, { numeric: true }); });
     loadVideo(v[0], notes);
+    if (v.length > 1) S.pendingClips = v.slice(1);
   }
   function resetEdit() {
     edP.pause(); rvP.pause();
@@ -375,6 +412,7 @@
     S.thumbs = []; S.render = { pct: 0, done: false, timer: null }; S.rSegs = null; S.sentBack = ""; S.published = false;
     S.msg = null; S.fps = 30; S.src = null; S.noteFiles = {}; lastSaved = ""; S.waitMsg = ""; S.wave = null; S.waveId = null;
     S.tr = null; S.trNorm = null; S.trId = null; $("#trQ").value = ""; resetTranscript();
+    S.parts = null; S.clipFiles = {}; S.pendingClips = null; S.clipAsk = null;
     S.unlocked = false; S.spriteId = null; S.sharp = null; closeFramePick();
     edP.clock = 0; rvP.clock = 0;
     inner.style.width = "100%";
@@ -385,7 +423,7 @@
     S.src = src; S.waitMsg = "";
     vid.hidden = false; $("#demoScreen").hidden = true; rvid.hidden = false; $("#rDemo").hidden = true;
     $("#waitScreen").hidden = true;
-    vid.src = src; rvid.src = src;
+    vid.src = src; rvid.src = src; edP.pi = 0; rvP.pi = 0;
   }
   function setWaiting(text) {
     S.waitMsg = text;
@@ -436,7 +474,8 @@
     var files = e.dataTransfer && e.dataTransfer.files;
     if (S.view === "upload") handleFiles(files);
     // Dropping the recording on the editor resumes a paused upload
-    else if (S.view === "edit" && S.msg && !S.msg.original.uploaded && files && files[0] && isVideo(files[0])) openMessage(S.msg.id, files[0], []);
+    else if (S.view === "edit" && S.msg && !S.msg.original.uploaded && files && files[0] && isVideo(files[0]) && !(S.msg.clips || []).length) openMessage(S.msg.id, files[0], []);
+    else if (S.view === "edit" && files && files.length) { var vs = Array.prototype.slice.call(files).filter(isVideo); if (vs.length) addClipFiles(vs); }
   });
   $("#chooseBtn").addEventListener("click", function () { fileIn.click(); });
   fileIn.addEventListener("change", function () { handleFiles(fileIn.files); fileIn.value = ""; });
@@ -451,7 +490,7 @@
     if (n) bits.push(n + " notes file" + (n > 1 ? "s" : ""));
     if (m.source === "zoom" && !m.original.uploaded) bits.push(m.importing && m.importing.failed ? "Couldn't copy from Zoom" : "Copying from Zoom" + (m.importing && m.importing.pct ? " " + m.importing.pct + "%" : ""));
     else if (cur && S.up.active) bits.push("Uploading " + upPct() + "%");
-    else if (!m.original.uploaded) bits.push("Upload paused");
+    else if (!allClipsUp(m)) bits.push("Upload paused");
     else if (m.source === "zoom" && m.status === "editing" && !(m.preview && m.preview.proxyId)) bits.push("Getting the preview ready");
     else if (m.status === "finished") bits.push(m.render && m.render.done ? "Waiting for approval" : "Preparing");
     else if (m.render && !m.render.done && !m.render.failed) bits.push("Rendering");
@@ -672,6 +711,7 @@
       var map = lsGet("files", {}); map[fileKey(file)] = m.id; lsSet("files", map);
       (notes || []).forEach(function (f, i) { S.noteFiles[i] = f; });
       startUploads(file);
+      if (S.pendingClips) { var pc = S.pendingClips; S.pendingClips = null; addClipFiles(pc); }
     }, function (e) {
       banner(msgOf(e), "Try again", function () { createOnServer(file, notes); });
     });
@@ -682,8 +722,9 @@
     var jobs = [];
     m.notes.forEach(function (n, i) { if (!n.uploaded && S.noteFiles[i]) jobs.push({ kind: "notes", idx: i, file: S.noteFiles[i], url: n.sessionUrl }); });
     if (!m.original.uploaded && file) jobs.push({ kind: "original", idx: 0, file: file, url: m.original.sessionUrl });
+    (m.clips || []).forEach(function (c, i) { if (!c.uploaded && S.clipFiles[i]) jobs.push({ kind: "clip", idx: i, file: S.clipFiles[i], url: c.sessionUrl }); });
     if (!jobs.length) { updateUpPill(); return; }
-    S.up = { active: true, sent: 0, total: jobs.reduce(function (a, j) { return a + j.file.size; }, 0), base: 0, error: "", key: file ? fileKey(file) : S.up.key, id: m.id };
+    S.up = { active: true, sent: 0, total: jobs.reduce(function (a, j) { return a + j.file.size; }, 0), base: 0, error: "", key: file ? fileKey(file) : S.up.key, id: m.id, jobs: jobs };
     updateUpPill();
     var run = function (i) {
       if (i >= jobs.length) { S.up.active = false; updateUpPill(); updateRender(); refreshList(); renderNotes(); poll(); return; }
@@ -743,6 +784,12 @@
       return loop(st.offset);
     });
   }
+  // Adds an upload to the one running, or starts one
+  function queueUpload(job) {
+    if (S.up.active && S.up.jobs && S.up.id === (S.msg && S.msg.id)) { S.up.jobs.push(job); S.up.total += job.file.size; updateUpPill(); }
+    else startUploads(null);
+  }
+  function allClipsUp(m) { return !!m && m.original.uploaded && (m.clips || []).every(function (c) { return c.uploaded; }); }
   function updateUpPill() {
     var pill = $("#upPill");
     if (S.demo || !S.msg) { pill.hidden = true; return; }
@@ -750,7 +797,7 @@
       pill.hidden = false; pill.className = "pill";
       $(".bar", pill).hidden = false; $(".bar i", pill).style.width = upPct() + "%";
       $(".lbl", pill).textContent = "Uploading · " + upPct() + "%";
-    } else if (!S.msg.original.uploaded) {
+    } else if (!allClipsUp(S.msg)) {
       pill.hidden = false; pill.className = "pill warn"; $(".bar", pill).hidden = true;
       $(".lbl", pill).textContent = "Upload paused";
     } else if (S.up.total) {
@@ -758,6 +805,7 @@
       $(".lbl", pill).textContent = "Saved to Drive";
     } else pill.hidden = true;
     if (S.view === "upload") renderUpload();
+    if (S.view === "edit") drawClips();
   }
   window.addEventListener("beforeunload", function (e) {
     if (S.up.active || saveTimer) { e.preventDefault(); e.returnValue = ""; flushSave(); }
@@ -796,7 +844,8 @@
         if (extraNotes && extraNotes.length) addNoteFiles(extraNotes);
         updateUpPill();
       };
-      if (localFile) {
+      if (localFile && (v.clips || []).length) { S.file = localFile; usePreview(v); go(); }
+      else if (localFile) {
         S.file = localFile; S.url = URL.createObjectURL(localFile);
         var started = false;
         vid.onloadedmetadata = function () { if (started) return; started = true; if (isFinite(vid.duration) && vid.duration > 0) S.dur = vid.duration; makeThumbs(); loadWave(v.preview); loadTranscript(v.preview && v.preview.transcript); go(); };
@@ -830,6 +879,7 @@
   function usePreview(v) {
     var p = v.preview || {};
     if (!p.proxyId) {
+      if (p.joining && allClipsUp(v)) { setWaiting("The recordings are being joined into one preview. It appears here a few minutes after the uploads finish."); return; }
       if (v.source === "zoom" && !v.original.uploaded) setWaiting(v.importing && v.importing.failed ? "This recording couldn't be copied from Zoom. Ask the tech team to look at it." : "Copying the recording from Zoom. It will be ready to edit in a few minutes.");
       else if (!v.original.uploaded) setWaiting(S.up.active ? "The preview will appear here a few minutes after the upload finishes." : "The upload isn't finished. Open Message Desk on the computer that has the recording and drop it again to finish.");
       else setWaiting(p.status === "error" ? "The preview couldn't be made. Ask the tech team to look at this post." : "Getting the preview ready. This takes a few minutes after an upload.");
@@ -837,7 +887,9 @@
     }
     serviceWorker().then(function () {
       setSource("/media/" + p.proxyId + "?size=" + (p.proxySize || 0) + "&type=video%2Fmp4");
+      S.parts = null;
       vid.onloadedmetadata = function () {
+        vid.onloadedmetadata = null;
         if (isFinite(vid.duration) && vid.duration > 0 && !S.dur) { S.dur = vid.duration; }
         if (S.view === "edit") show("edit");
       };
@@ -1073,14 +1125,22 @@
   function makeThumbs() {
     S.thumbs = new Array(N_THUMBS).fill(null); renderVisible();
     if (S.demo) { for (var i = 0; i < N_THUMBS; i++) S.thumbs[i] = demoThumb(i); renderVisible(); return; }
-    var token = S.url;
-    var tv = document.createElement("video"); tv.muted = true; tv.preload = "auto"; tv.playsInline = true; tv.src = S.url;
+    var parts = S.parts && S.parts.length > 1 ? S.parts.slice() : [{ url: S.url || S.src, dur: S.dur }];
+    var token = S.thumbToken = {};
     var c = document.createElement("canvas"); c.width = 192; c.height = 108; var g = c.getContext("2d");
     (async function () {
-      await once(tv, "loadeddata", 10000);
+      var cur = -1, tv = null, off = 0;
       for (var i = 0; i < N_THUMBS; i++) {
-        if (S.url !== token) return;
-        try { tv.currentTime = (i + 0.5) / N_THUMBS * S.dur; } catch (e) {}
+        if (S.thumbToken !== token) return;
+        var T = (i + 0.5) / N_THUMBS * S.dur, j = 0, o = 0;
+        while (j < parts.length - 1 && T >= o + parts[j].dur) { o += parts[j].dur; j++; }
+        if (j !== cur) {
+          if (tv) { tv.removeAttribute("src"); try { tv.load(); } catch (e) {} }
+          tv = document.createElement("video"); tv.muted = true; tv.preload = "auto"; tv.playsInline = true; tv.src = parts[j].url;
+          cur = j; off = o;
+          await once(tv, "loadeddata", 10000);
+        }
+        try { tv.currentTime = Math.max(0, T - off); } catch (e) {}
         await once(tv, "seeked", 8000);
         try {
           var vw = tv.videoWidth || 16, vh = tv.videoHeight || 9, sr = vw / vh, tr = 192 / 108, sx = 0, sy = 0, sw = vw, sh = vh;
@@ -1091,9 +1151,113 @@
         } catch (e) {}
       }
       scheduleVisible();
-      tv.removeAttribute("src"); try { tv.load(); } catch (e) {}
+      if (tv) { tv.removeAttribute("src"); try { tv.load(); } catch (e) {} }
     })();
   }
+
+  /* ---------- Several recordings, back to back ---------- */
+  // Where each recording starts on the timeline
+  function clipStarts() {
+    var durs = S.parts && S.parts.length > 1 ? S.parts.map(function (p) { return p.dur; }) : (S.msg && S.msg.preview && S.msg.preview.clipDurs) || null;
+    if (!durs || durs.length < 2) return [0];
+    var o = 0; return durs.map(function (d) { var s = o; o += d; return s; });
+  }
+  function clipNames() { return S.msg ? [S.msg.file.name].concat((S.msg.clips || []).map(function (c) { return c.name; })) : S.file ? [S.file.name] : []; }
+  function localDuration(file) {
+    return new Promise(function (res) {
+      var u = URL.createObjectURL(file), t = document.createElement("video"); t.preload = "metadata"; t.muted = true;
+      var done = function (d) { res({ url: u, dur: d }); };
+      t.onloadedmetadata = function () { done(isFinite(t.duration) ? t.duration : 0); };
+      t.onerror = function () { done(0); };
+      t.src = u;
+    });
+  }
+  function clipErr(text) { $("#hint").textContent = text; }
+  function addClipFiles(files) {
+    if (S.demo) { clipErr("Clips can't be added to the sample recording."); return; }
+    if (!S.msg) { S.pendingClips = (S.pendingClips || []).concat(files); return; }
+    if (isLocked()) { nudgeLock(); return; }
+    if (S.msg.status === "published") return;
+    if (!S.src || !S.dur) { clipErr("Wait for the video to load, then add the clip."); return; }
+    // The same file dropped again finishes its upload instead of adding it twice
+    var fresh = files.filter(function (f) {
+      var i = (S.msg.clips || []).findIndex(function (c) { return c.name === f.name && c.size === f.size; });
+      if (i < 0) return true;
+      if (!S.msg.clips[i].uploaded && !S.clipFiles[i]) { S.clipFiles[i] = f; queueUpload({ kind: "clip", idx: i, file: f, url: S.msg.clips[i].sessionUrl }); }
+      return false;
+    });
+    var chain = Promise.resolve();
+    fresh.forEach(function (f) { chain = chain.then(function () { return addClip(f); }); });
+  }
+  function addClip(file) {
+    return localDuration(file).then(function (r) {
+      if (!r.dur) { clipErr(file.name + " can't play in this browser, so it can't be added here. Try an MP4."); try { URL.revokeObjectURL(r.url); } catch (e) {} return; }
+      var before = S.dur;
+      if (!S.parts) S.parts = [{ url: S.url || S.src, dur: before, name: clipNames()[0] }];
+      return api("POST", "/messages/" + S.msg.id + "/clips", { name: file.name, size: file.size, type: file.type || "video/mp4", duration: r.dur, totalDuration: before + r.dur }).then(function (j) {
+        mergeView(j.message);
+        S.parts.push({ url: r.url, dur: r.dur, name: file.name });
+        S.clipFiles[j.idx] = file;
+        S.dur = before + r.dur;
+        // Everything in the new clip is kept; earlier undo steps no longer fit the longer timeline
+        if (S.segs) { var last = S.segs[S.segs.length - 1]; if (last.t === "keep") last.b = S.dur; else S.segs.push({ a: before, b: S.dur, t: "keep", s: true }); }
+        S.undo = []; S.redo = [];
+        drawTL(); renderEditHeader(); updateZoomUi(); makeThumbs(); flushSave();
+        queueUpload({ kind: "clip", idx: j.idx, file: file, url: j.message.clips[j.idx].sessionUrl });
+        renderVisible();
+      });
+    }).catch(function (e) { clipErr(msgOf(e)); });
+  }
+  // Removing a clip takes its part of the timeline (and any cuts in it) out
+  function removeClip(j) {
+    if (!S.parts || j < 1 || !S.msg) return;
+    var a = clipStarts()[j], len = S.parts[j].dur, b = a + len;
+    var segs = S.segs ? [] : null;
+    if (S.segs) S.segs.forEach(function (s) {
+      var parts = [];
+      if (s.a < a) parts.push({ a: s.a, b: Math.min(s.b, a), t: s.t, s: s.s });
+      if (s.b > b) parts.push({ a: Math.max(s.a, b) - len, b: s.b - len, t: s.t, s: s.a >= b ? s.s : true });
+      parts.forEach(function (x) { if (x.b - x.a > 0.005) segs.push(x); });
+    });
+    if (segs && segs.length && segs[0]) delete segs[0].s;
+    if (segs && (!segs.length || (segs.length === 1 && segs[0].t === "keep"))) segs = null;
+    edP.pause(); rvP.pause();
+    try { URL.revokeObjectURL(S.parts[j].url); } catch (e) {}
+    S.parts.splice(j, 1);
+    var files = {}; Object.keys(S.clipFiles).forEach(function (k) { k = +k; if (k < j - 1) files[k] = S.clipFiles[k]; else if (k > j - 1) files[k - 1] = S.clipFiles[k]; });
+    S.clipFiles = files;
+    S.dur -= len; S.segs = segs; S.sel = null; S.inPt = S.outPt = null; S.undo = []; S.redo = [];
+    if (S.parts.length === 1 && S.url) S.parts = null;
+    // The sound wave and transcript are remade for the new set of recordings
+    S.wave = null; S.waveId = null; S.tr = null; S.trId = null; resetTranscript();
+    edP.setT(Math.min(edP.getT(), S.dur));
+    drawTL(); renderEditHeader(); updateZoomUi(); makeThumbs(); drawTrNote();
+    api("DELETE", "/messages/" + S.msg.id + "/clips/" + (j - 1), { totalDuration: S.dur }).then(function (v) { mergeView(v); lastSaved = ""; flushSave(); drawClips(); poll(); }, function (e) { clipErr(msgOf(e)); });
+  }
+  function drawClips() {
+    var el = $("#clipList"); if (!el) return;
+    var names = clipNames(), starts = clipStarts(), m = S.msg;
+    var durs = S.parts && S.parts.length > 1 ? S.parts.map(function (p) { return p.dur; }) : (m && m.preview && m.preview.clipDurs) || [S.dur];
+    var canEdit = !S.demo && m && m.status !== "published" && !isLocked() && !S.up.active;
+    var canRemove = canEdit && S.parts && S.parts.length > 1;
+    el.innerHTML = names.map(function (n, i) {
+      var up = i === 0 ? m && m.original : m && m.clips && m.clips[i - 1];
+      var st = up && !up.uploaded ? (S.up.active ? "Uploading" : "Not uploaded") : fmt(durs[i] || 0);
+      if (S.clipAsk === i) return '<div class="clip-confirm"><span>Remove clip ' + (i + 1) + "? Its part of the timeline and any cuts in it go too.</span>" +
+        '<span style="display: flex; gap: 8px;"><button class="btn" data-clip-no>Cancel</button><button class="btn danger" data-clip-yes="' + i + '">Remove</button></span></div>';
+      return '<div class="clip-item"><span class="n">' + (i + 1) + '</span><span class="nm" title="' + esc(n) + '">' + esc(n) + '</span><span class="st">' + esc(st) + "</span>" +
+        (i > 0 && canRemove ? '<button class="icon-btn sm" data-clip-x="' + i + '" aria-label="Remove clip ' + (i + 1) + '" title="Remove"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 4.5 7 7M11.5 4.5l-7 7"></path></svg></button>' : "") + "</div>";
+    }).join("");
+    $$("[data-clip-x]", el).forEach(function (b) { b.addEventListener("click", function () { S.clipAsk = +b.dataset.clipX; drawClips(); }); });
+    var no = $("[data-clip-no]", el); if (no) no.addEventListener("click", function () { S.clipAsk = null; drawClips(); });
+    var yes = $("[data-clip-yes]", el); if (yes) yes.addEventListener("click", function () { var j = +yes.dataset.clipYes; S.clipAsk = null; removeClip(j); });
+    var add = !S.demo && m && m.status !== "published";
+    $("#addClipBtn").hidden = !add; $("#addClipBtn2").hidden = !add;
+    $("#addClipBtn").disabled = $("#addClipBtn2").disabled = isLocked();
+  }
+  $("#addClipBtn").addEventListener("click", noFocus(function () { if (isLocked()) { nudgeLock(); return; } $("#clipIn").click(); }));
+  $("#addClipBtn2").addEventListener("click", function () { if (isLocked()) { nudgeLock(); return; } $("#clipIn").click(); });
+  $("#clipIn").addEventListener("change", function () { var f = Array.prototype.slice.call($("#clipIn").files || []).filter(isVideo); $("#clipIn").value = ""; if (f.length) addClipFiles(f); });
 
   /* ---------- Timeline: zoom, ruler, film ---------- */
   function viewW() { return tScroll.clientWidth || 1; }
@@ -1182,6 +1346,7 @@
       });
     }
     if (S.inPt != null && S.outPt != null) h += '<div class="pending" style="left:' + P(S.inPt) + "%;width:" + P(S.outPt - S.inPt) + '%"></div>';
+    clipStarts().forEach(function (c, i) { if (i > 0 && c < S.dur) h += '<div class="clipmark" style="left:' + P(c) + '%"><span>Clip ' + (i + 1) + "</span></div>"; });
     if (S.inPt != null) h += '<div class="mark in" style="left:' + P(S.inPt) + '%"><span>IN</span></div>';
     if (S.outPt != null) h += '<div class="mark out" style="left:' + P(S.outPt) + '%"><span>OUT</span></div>';
     $("#ovl").innerHTML = h;
@@ -1192,7 +1357,7 @@
     if (S.inPt != null && S.outPt == null) hint = "In point set. Move the playhead and press O for the out point.";
     else if (!popRange()) hint = S.segs ? "Click a section to switch it between Remove and Keep, or mark another range." : "Everything is kept. Press I and O to mark a range, then choose Remove or Keep.";
     $("#hint").textContent = hint;
-    drawPop(); drawCutList(); drawLock(); markRemovedSoon();
+    drawPop(); drawCutList(); drawLock(); markRemovedSoon(); drawClips();
     scheduleSave();
   }
   function drawPop() {
@@ -1611,7 +1776,7 @@
     if (S.demo || !S.msg || !S.user) return;
     var m = S.msg;
     var renderBusy = m.renderRequested && !(m.render && (m.render.done || m.render.failed));
-    var previewBusy = (m.original.uploaded || (m.source === "zoom" && !(m.importing && m.importing.failed))) && (!(m.preview && (m.preview.proxyId || m.preview.status === "error")) || (m.preview && (m.preview.status === "queued" || m.preview.status === "running")));
+    var previewBusy = (m.preview && m.preview.joining) || (m.original.uploaded || (m.source === "zoom" && !(m.importing && m.importing.failed))) && (!(m.preview && (m.preview.proxyId || m.preview.status === "error")) || (m.preview && (m.preview.status === "queued" || m.preview.status === "running")));
     var tr = m.preview && m.preview.transcript;
     var transcriptBusy = m.original.uploaded && !(tr && (tr.status === "done" || tr.status === "error"));
     var watching = (S.view === "details" || S.view === "review") ? renderBusy || (m.render && m.render.done && m.status === "finished" && !m.webflow) : S.view === "edit" ? previewBusy || transcriptBusy : false;
@@ -1621,7 +1786,13 @@
       api("GET", "/messages/" + m.id).then(function (v) {
         if (!S.msg || S.msg.id !== v.id) return;
         var hadProxy = S.msg.preview && S.msg.preview.proxyId;
+        if (!v.preview.waveId) S.waveId = null;
+        if (!v.preview.thumbsId) S.spriteId = null;
+        if (v.preview.transcript && !v.preview.transcript.id) S.trId = null;
+        var mixed = S.parts && S.parts.length > 1 && !S.url;
         mergeView(v);
+        if (mixed && v.preview.proxyId && !v.preview.joining) { usePreview(v); drawTL(); }
+        if (mixed) { updateRender(); poll(); return; }
         if (!S.dur && v.duration) S.dur = v.duration;
         if (v.preview.waveId) loadWave(v.preview);
         if (S.view === "edit" && !S.url) loadSprite(v.preview);
@@ -1733,9 +1904,8 @@
     if (S.demo || !S.msg) { S.notes = S.notes.concat(files.map(function (f) { return { name: f.name, size: f.size, type: f.type }; })); renderNotes(); return; }
     api("POST", "/messages/" + S.msg.id + "/notes", { files: files.map(function (f) { return { name: f.name, size: f.size, type: f.type }; }) }).then(function (j) {
       mergeView(j.message);
-      j.added.forEach(function (idx, k) { S.noteFiles[idx] = files[k]; });
+      j.added.forEach(function (idx, k) { S.noteFiles[idx] = files[k]; queueUpload({ kind: "notes", idx: idx, file: files[k], url: S.msg.notes[idx].sessionUrl }); });
       renderNotes();
-      if (!S.up.active) startUploads(null);
     }, function (e) { showDetErr(msgOf(e)); });
   }
   function showDetErr(t) { $("#detErr").textContent = t; $("#detErr").hidden = !t; }

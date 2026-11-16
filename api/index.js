@@ -241,6 +241,8 @@ export default async function handler(req, res) {
       if (action === 'uploaded') { await M.markUploaded(m, b); return send(res, 200, M.view(m)); }
       if (action === 'notes' && req.method === 'POST') { const added = await M.addNotes(m, b.files, origin(req)); return send(res, 200, { added, message: M.view(m) }); }
       if (action === 'notes' && req.method === 'DELETE') { await M.removeNote(m, parts[3]); return send(res, 200, M.view(m)); }
+      if (action === 'clips' && req.method === 'POST') { const idx = await M.addClip(m, b, origin(req)); return send(res, 200, { idx, message: M.view(m) }); }
+      if (action === 'clips' && req.method === 'DELETE') { await M.removeClip(m, parts[3], b.totalDuration); return send(res, 200, M.view(m)); }
       if (action === 'unpublish' && req.method === 'POST') {
         if (String(b.confirm || '').trim().toLowerCase() !== 'unpublish') return send(res, 400, { error: 'Type unpublish to confirm.' });
         await M.unpublish(m); return send(res, 200, M.view(m));

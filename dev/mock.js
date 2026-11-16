@@ -28,16 +28,31 @@ function view(m) {
   return {
     id: m.id, file: m.file, duration: m.duration, source: m.source || null, importing: m.importing || null, original: { uploaded: m.original.uploaded, sessionUrl: m.original.uploaded ? null : m.original.sessionUrl },
     notes: m.notes.map((n) => ({ name: n.name, size: n.size, type: n.type, uploaded: n.uploaded, sessionUrl: n.uploaded ? null : n.sessionUrl })),
+    clips: (m.clips || []).map((c) => ({ name: c.name, size: c.size, type: c.type, duration: c.duration, uploaded: c.uploaded, sessionUrl: c.uploaded ? null : c.sessionUrl })),
     d: m.d, segs: m.segs, fps: m.prepare.fps || m.fps, renderSegs: m.renderSegs, renderRequested: !!m.renderRequestId, status: m.status,
-    filing: m.filing, webflow: m.webflow, preview: m.prepare, render: m.render, updatedAt: m.updatedAt
+    filing: m.filing, webflow: m.webflow, preview: m.prepare.key && m.prepare.key !== clipsKey(m) ? { status: 'queued', pct: 0, joining: true, transcript: { status: 'queued', pct: 0, id: null } } : m.prepare, render: m.render, updatedAt: m.updatedAt
   };
 }
 
+const clipsKey = (m) => [m.original.token, ...(m.clips || []).map((c) => c.token)].join(',');
+const allUp = (m) => m.original.uploaded && (m.clips || []).every((c) => c.uploaded);
 function startPrepare(m) {
-  m.prepare = { status: 'running', pct: 10 };
+  const key = clipsKey(m);
+  m.prepare = { ...m.prepare, status: 'running', pct: 10 };
   setTimeout(() => {
     try {
-      const src = uploads.get(m.original.token).file;
+      let src = uploads.get(m.original.token).file;
+      let clipDurs = null;
+      if ((m.clips || []).length) {
+        // Join the clips back to back, as the real preview job does
+        const files = [src, ...m.clips.map((c) => uploads.get(c.token).file)];
+        clipDurs = files.map((f) => parseFloat(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', f], { encoding: 'utf8' })));
+        const list = path.join(dir, m.id + '-clips.txt'), joined = path.join(dir, m.id + '-joined-' + Date.now() + '.mp4');
+        fs.writeFileSync(list, files.map((f) => "file '" + f + "'").join('\n'));
+        execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', joined]);
+        src = joined;
+        m.duration = clipDurs.reduce((a, b) => a + b, 0);
+      }
       const thumbs = path.join(dir, m.id + '-thumbs.jpg');
       const dur = m.duration || parseFloat(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', src], { encoding: 'utf8' }));
       const n = 48;
@@ -48,7 +63,8 @@ function startPrepare(m) {
       const tr = path.join(dir, m.id + '-transcript.json');
       const said = 'and so we come to the word today about faith and the deep waters of grace where we learn to trust what God is doing in the season ahead'.split(' ');
       fs.writeFileSync(tr, JSON.stringify({ words: Array.from({ length: Math.floor(m.duration / 0.45) }, (_, i) => [+(i * 0.45).toFixed(2), +(i * 0.45 + 0.4).toFixed(2), said[i % said.length]]) }));
-      m.prepare = { transcript: { status: 'done', pct: 100, id: 'tr-' + m.id }, status: 'done', pct: 100, waveId: 'w-' + m.id, waveRate: 50, proxyId: 'p-' + m.id, proxySize: fs.statSync(src).size, proxyType: 'video/mp4', thumbsId: 't-' + m.id, thumbs: { n, cols: 10, rows: 5, w: 160, h: 90 }, fps: 30, duration: m.duration };
+      if (key !== clipsKey(m)) return; // clips changed meanwhile
+      m.prepare = { key, clipDurs, transcript: { status: 'done', pct: 100, id: 'tr-' + m.id }, status: 'done', pct: 100, waveId: 'w-' + m.id, waveRate: 50, proxyId: 'p-' + m.id, proxySize: fs.statSync(src).size, proxyType: 'video/mp4', thumbsId: 't-' + m.id, thumbs: { n, cols: 10, rows: 5, w: 160, h: 90 }, fps: 30, duration: m.duration };
       m.files = { ['p-' + m.id]: src, ['t-' + m.id]: thumbs, ['w-' + m.id]: wave, ['tr-' + m.id]: tr };
     } catch (e) { console.error(e.message); m.prepare = { status: 'error', pct: 0 }; }
   }, 1500 / SPEED);
@@ -171,17 +187,31 @@ export default async function mock(req, res) {
     }
     if (a === 'thumb-upload') return send(res, 200, { sessionUrl: newUpload(m, 'thumb', 0, b.size) });
     if (a === 'thumb') { m.d.thumb = b.thumb; return send(res, 200, view(m)); }
-    if (!a && req.method === 'PUT') { if (b.d) m.d = b.d; if ('segs' in b) m.segs = b.segs; if (b.fps) m.fps = b.fps; if (b.duration && !m.duration) m.duration = b.duration; m.updatedAt = Date.now(); return send(res, 200, { ok: true }); }
+    if (!a && req.method === 'PUT') { if (b.d) m.d = b.d; if (b.duration && (!m.duration || m.clipsChanged)) m.duration = b.duration; if ('segs' in b) m.segs = b.segs; if (b.fps) m.fps = b.fps; m.updatedAt = Date.now(); return send(res, 200, { ok: true }); }
+    if (a === 'clips' && req.method === 'POST') {
+      m.clips = m.clips || [];
+      const c = { name: b.name, size: b.size, type: b.type, duration: b.duration, uploaded: false };
+      c.sessionUrl = newUpload(m, 'clip', m.clips.length, b.size); c.token = c.sessionUrl.split('/').pop();
+      m.clips.push(c); m.clipsChanged = true;
+      if (b.totalDuration) m.duration = b.totalDuration;
+      return send(res, 200, { idx: m.clips.length - 1, message: view(m) });
+    }
+    if (a === 'clips' && req.method === 'DELETE') {
+      m.clips.splice(+parts[3], 1); m.clipsChanged = true;
+      if (b.totalDuration) m.duration = b.totalDuration;
+      if (allUp(m)) startPrepare(m);
+      return send(res, 200, view(m));
+    }
     if (a === 'upload-offset') {
-      const t = b.kind === 'original' ? m.original : m.notes[b.idx];
+      const t = b.kind === 'original' ? m.original : b.kind === 'clip' ? m.clips[b.idx] : m.notes[b.idx];
       if (t.uploaded) return send(res, 200, { done: true });
       const up = uploads.get(t.sessionUrl.split('/').pop());
       return send(res, 200, { done: false, offset: up.received, sessionUrl: t.sessionUrl });
     }
     if (a === 'uploaded') {
-      const t = b.kind === 'original' ? m.original : m.notes[b.idx];
+      const t = b.kind === 'original' ? m.original : b.kind === 'clip' ? m.clips[b.idx] : m.notes[b.idx];
       t.uploaded = true;
-      if (b.kind === 'original') { startPrepare(m); if (m.renderRequestId && !m.render) startRender(m); }
+      if ((b.kind === 'original' || b.kind === 'clip') && allUp(m)) { startPrepare(m); if (m.renderRequestId && !m.render) startRender(m); }
       return send(res, 200, view(m));
     }
     if (a === 'notes' && req.method === 'POST') {

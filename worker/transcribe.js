@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import * as G from '../lib/google.js';
 import * as M from '../lib/messages.js';
-import { downloadToFile, ffmpeg, throttled, log } from './common.js';
+import { ffmpeg, throttled, log, getSources } from './common.js';
 
 const id = process.argv[2] || process.env.MESSAGE_ID;
 const work = process.env.WORK_DIR || '/tmp/md-t';
@@ -17,20 +17,19 @@ const mark = throttled(() => G.updateFile(fileId, { appProperties: props }), 150
 async function main() {
   fs.mkdirSync(work, { recursive: true });
   const m = await M.load(id);
-  if (!m.edit.original.uploaded || !m.edit.original.fileId) throw new Error('The recording has not finished uploading');
+  if (!M.allUploaded(m)) throw new Error('The recording has not finished uploading');
+  const key = M.clipsKey(m);
   const existing = m.kids.find((k) => k.name === 'transcript.json' && k.appProperties && k.appProperties.md === 'transcript');
-  if (existing && existing.appProperties.status === 'done' && existing.appProperties.orig === m.edit.original.fileId) { log('already done'); return; }
-  props.orig = m.edit.original.fileId;
+  if (existing && existing.appProperties.status === 'done' && existing.appProperties.orig === key) { log('already done'); return; }
+  props.orig = key;
   fileId = await G.writeJson(m.id, 'transcript.json', { words: [] }, existing && existing.id);
   await mark(true);
 
-  const orig = await G.getFile(m.edit.original.fileId);
-  const src = path.join(work, 'original.' + m.edit.file.ext);
-  await downloadToFile(orig.id, +orig.size, src, (at, size) => { props.pct = String(Math.floor(at / size * 10)); mark(); });
+  const srcs = await getSources(m, work, (at, size) => { props.pct = String(Math.floor(at / size * 10)); mark(); });
   // Only the sound is needed: 16 kHz mono raw samples, exactly what Whisper listens to
   const audio = path.join(work, 'sound.f32');
-  await ffmpeg(['-y', '-i', src, '-vn', '-ac', '1', '-ar', '16000', '-f', 'f32le', '-acodec', 'pcm_f32le', audio]);
-  fs.unlinkSync(src);
+  await ffmpeg(['-y', ...srcs.inputArgs, '-i', srcs.input, '-vn', '-ac', '1', '-ar', '16000', '-f', 'f32le', '-acodec', 'pcm_f32le', audio]);
+  for (const f of srcs.files) fs.rmSync(f, { force: true });
   props.pct = '12'; await mark(true);
 
   const out = path.join(work, 'transcript.json');

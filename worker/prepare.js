@@ -5,7 +5,7 @@ import path from 'node:path';
 import * as G from '../lib/google.js';
 import * as M from '../lib/messages.js';
 import { rateExpr } from '../lib/cut.js';
-import { downloadToFile, uploadFromFile, probe, ffmpeg, throttled, log, freeDisk, makeWaveform, WAVE_RATE } from './common.js';
+import { uploadFromFile, probe, probeSources, ffmpeg, throttled, log, freeDisk, makeWaveform, WAVE_RATE, getSources, streamShape } from './common.js';
 
 const id = process.argv[2] || process.env.MESSAGE_ID;
 const work = process.env.WORK_DIR || '/tmp/md';
@@ -14,20 +14,22 @@ async function main() {
   fs.mkdirSync(work, { recursive: true });
   const m = await M.load(id);
   const e = m.edit;
-  if (!e.original.uploaded || !e.original.fileId) throw new Error('The recording has not finished uploading');
+  if (!M.allUploaded(m)) throw new Error('The recording has not finished uploading');
+  const key = M.clipsKey(m);
   const prev = m.prepare || {};
   const state = { ...prev, status: 'running', pct: 1, startedAt: new Date().toISOString(), error: null };
   const save = throttled(async () => { m.ids.prepare = await G.writeJson(m.id, 'prepare.json', state, m.ids.prepare); });
   await save(true);
 
-  const orig = await G.getFile(e.original.fileId);
-  log('original', Math.round(orig.size / 1e6), 'MB; free disk', Math.round(freeDisk() / 1e9), 'GB');
-  let src = path.join(work, 'original.' + e.file.ext);
-  const local = process.env.LOCAL_ORIGINAL;
-  if (local && fs.existsSync(local) && fs.statSync(local).size === +orig.size) src = local; // already on this machine (Zoom import)
-  else await downloadToFile(orig.id, +orig.size, src, (at, size) => { state.pct = Math.max(1, Math.floor(at / size * 40)); save(); });
+  log('free disk', Math.round(freeDisk() / 1e9), 'GB');
+  let srcs = await getSources(m, work, (at, size) => { state.pct = Math.max(1, Math.floor(at / size * 40)); save(); }, { useConformed: false });
+  state.conformed = null;
+  if (srcs.files.length > 1) srcs = await joinClips(m, srcs, state, save, key);
+  const src = srcs.input;
 
-  const info = probe(src);
+  const info = probeSources(srcs);
+  const clipDurs = info.clipDurs || [info.duration];
+  delete info.clipDurs;
   log('probe', info);
   Object.assign(state, { fps: info.fps, duration: info.duration, width: info.width, height: info.height, pct: 40 });
   await save(true);
@@ -36,11 +38,11 @@ async function main() {
   // Preview only: 540p, at most 30 fps, quickest settings. Frame timing still lines up with the original.
   const pfps = info.fps > 31 ? info.fps / 2 : info.fps;
   const pg = String(Math.max(1, Math.round(pfps)));
-  const args = ['-y', '-threads', '0', '-i', src, '-map', '0:v:0', '-vf', (pfps !== info.fps ? 'fps=' + rateExpr(pfps) + ',' : '') + "scale=-2:'min(540,ih)':flags=fast_bilinear,format=yuv420p", '-c:v', 'libx264', '-preset', 'superfast', '-crf', '30', '-g', pg, '-keyint_min', pg, '-sc_threshold', '0'];
+  const args = ['-y', '-threads', '0', ...srcs.inputArgs, '-i', src, '-map', '0:v:0', '-vf', (pfps !== info.fps ? 'fps=' + rateExpr(pfps) + ',' : '') + "scale=-2:'min(540,ih)':flags=fast_bilinear,format=yuv420p", '-c:v', 'libx264', '-preset', 'superfast', '-crf', '30', '-g', pg, '-keyint_min', pg, '-sc_threshold', '0'];
   if (info.hasAudio) args.push('-map', '0:a:0', '-c:a', 'aac', '-b:a', '64k', '-ac', '1');
   args.push('-movflags', '+faststart', proxy);
   await ffmpeg(args, (s) => { state.pct = 40 + Math.floor(Math.min(1, s / info.duration) * 45); save(); });
-  fs.unlinkSync(src);
+  for (const f of srcs.files) if (f !== process.env.LOCAL_ORIGINAL) fs.rmSync(f, { force: true });
 
   // Thumbnails: one picture every ~15 seconds (48 to 400), packed into one image
   const n = Math.max(48, Math.min(400, Math.round(info.duration / 15)));
@@ -61,10 +63,41 @@ async function main() {
   Object.assign(state, {
     status: 'done', pct: 100, proxyId: p.id, proxySize: fs.statSync(proxy).size, thumbsId: t.id,
     waveId: wv ? wv.id : null, waveRate: WAVE_RATE,
-    thumbs: { n, cols, rows, w, h }, finishedAt: new Date().toISOString()
+    thumbs: { n, cols, rows, w, h }, finishedAt: new Date().toISOString(), clipsKey: key, clipDurs
   });
   await save(true);
   log('preview ready');
+}
+
+// Several recordings: if they don't all share the same picture and sound format, they are re-made in
+// the first one's format (high quality) so they play back to back. Those copies are kept privately in
+// the post's folder for the render, and cleared when the post is published.
+async function joinClips(m, srcs, state, save, key) {
+  const shapes = srcs.files.map((f) => streamShape(f));
+  const same = shapes.every((s) => s.v === shapes[0].v && s.a === shapes[0].a);
+  log('clips', shapes.length, same ? 'match' : 'differ; making them match');
+  if (same) return srcs;
+  const first = shapes[0];
+  const fps = first.rate && first.rate !== '0/0' ? first.rate : '30';
+  const W = first.width || 1920, H = first.height || 1080;
+  const out = [], ids = [];
+  for (let i = 0; i < srcs.files.length; i++) {
+    const f = srcs.files[i], dest = path.join(work, 'joined-' + (i + 1) + '.mp4');
+    const args = ['-y', '-i', f];
+    if (!shapes[i].hasAudio) args.push('-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo');
+    args.push('-map', '0:v:0', '-map', shapes[i].hasAudio ? '0:a:0' : '1:a:0', '-shortest',
+      '-vf', 'scale=' + W + ':' + H + ':force_original_aspect_ratio=decrease,pad=' + W + ':' + H + ':(ow-iw)/2:(oh-ih)/2,setsar=1,fps=' + fps + ',format=yuv420p',
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '17', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2', '-movflags', '+faststart', dest);
+    await ffmpeg(args, () => {});
+    fs.rmSync(f, { force: true });
+    const up = await uploadFromFile({ path: dest, parentId: m.id, name: 'joined-' + (i + 1) + '.mp4', mimeType: 'video/mp4', appProperties: { md: 'conformed', key: key.slice(0, 80) } });
+    out.push(dest); ids.push(up.id);
+    state.pct = Math.min(39, state.pct + 2); await save();
+  }
+  state.conformed = ids;
+  const list = path.join(work, 'clips.txt');
+  fs.writeFileSync(list, out.map((f) => "file '" + f + "'").join('\n'));
+  return { input: list, inputArgs: ['-f', 'concat', '-safe', '0'], files: out };
 }
 
 main().catch(async (err) => {
