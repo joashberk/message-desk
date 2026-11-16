@@ -308,6 +308,7 @@
     S.file = null; S.url = null; S.dur = 0; S.segs = null; S.inPt = S.outPt = null; S.sel = null; S.undo = []; S.redo = []; S.fit = true;
     S.thumbs = []; S.render = { pct: 0, done: false, timer: null }; S.rSegs = null; S.sentBack = ""; S.published = false;
     S.msg = null; S.fps = 30; S.src = null; S.noteFiles = {}; lastSaved = ""; S.waitMsg = ""; S.wave = null; S.waveId = null;
+    S.tr = null; S.trNorm = null; S.trId = null; $("#trQ").value = ""; $("#trResults").innerHTML = "";
     edP.clock = 0; rvP.clock = 0;
     inner.style.width = "100%";
     vid.removeAttribute("src"); rvid.removeAttribute("src");
@@ -666,7 +667,7 @@
       if (localFile) {
         S.file = localFile; S.url = URL.createObjectURL(localFile);
         var started = false;
-        vid.onloadedmetadata = function () { if (started) return; started = true; if (isFinite(vid.duration) && vid.duration > 0) S.dur = vid.duration; makeThumbs(); go(); };
+        vid.onloadedmetadata = function () { if (started) return; started = true; if (isFinite(vid.duration) && vid.duration > 0) S.dur = vid.duration; makeThumbs(); loadWave(v.preview); loadTranscript(v.preview && v.preview.transcript); go(); };
         vid.onerror = function () { if (started) return; started = true; S.url = null; usePreview(v); go(); };
         setSource(S.url);
       } else { usePreview(v); go(); }
@@ -701,9 +702,64 @@
       };
       if (p.thumbsId && p.thumbs) loadSprite(p);
       loadWave(p);
+      loadTranscript(p.transcript);
       if (S.view === "edit") show("edit");
     }, function () { setWaiting("This browser can't show the preview. Try Chrome."); });
   }
+  // Transcript search
+  function norm(w) { return String(w).toLowerCase().replace(/[^a-z0-9']+/g, ""); }
+  function loadTranscript(t) {
+    drawTrNote();
+    if (!t || !t.id || S.trId === t.id) return;
+    S.trId = t.id;
+    serviceWorker().then(function () { return fetch("/media/" + t.id + "?type=application%2Fjson"); })
+      .then(function (r) { if (!r.ok) throw new Error("tr"); return r.json(); })
+      .then(function (j) { S.tr = j.words || []; S.trNorm = S.tr.map(function (w) { return norm(w[2]); }); drawTrNote(); searchTr(); }, function () { S.trId = null; });
+  }
+  function drawTrNote() {
+    var t = S.msg && S.msg.preview && S.msg.preview.transcript, q = $("#trQ"), note = $("#trNote");
+    var ready = !!(S.tr && S.tr.length);
+    q.disabled = !ready;
+    if (S.demo) { note.textContent = "The transcript isn't available for the sample recording."; return; }
+    if (ready) { if (!q.value) note.textContent = "Search " + S.tr.length.toLocaleString() + " words, then click a result to jump there."; return; }
+    note.textContent = !t ? "The transcript appears here a little while after the upload finishes."
+      : t.status === "error" ? "The transcript couldn't be made for this recording."
+      : t.status === "done" ? "Loading the transcript…"
+      : "Writing the transcript · " + Math.floor(t.pct || 0) + "%";
+  }
+  function searchTr() {
+    var box = $("#trResults"), q = $("#trQ").value.trim();
+    if (!S.tr || !q) { box.innerHTML = ""; drawTrNote(); return; }
+    var terms = q.split(/\s+/).map(norm).filter(Boolean), n = terms.length, hits = [];
+    if (!n) { box.innerHTML = ""; return; }
+    for (var i = 0; i + n <= S.trNorm.length && hits.length < 200; i++) {
+      var ok = true;
+      for (var k = 0; k < n && ok; k++) ok = k === n - 1 ? S.trNorm[i + k].indexOf(terms[k]) === 0 : S.trNorm[i + k] === terms[k];
+      if (ok) hits.push(i);
+    }
+    $("#trNote").textContent = hits.length ? (hits.length >= 200 ? "200+" : hits.length) + (hits.length === 1 ? " place" : " places") + " found." : "Not found. Try a different word.";
+    box.innerHTML = hits.map(function (i) {
+      var from = Math.max(0, i - 6), to = Math.min(S.tr.length, i + n + 6), s = "";
+      for (var j = from; j < to; j++) s += (j === i ? "<mark>" : "") + esc(S.tr[j][2]) + (j === i + n - 1 ? "</mark>" : "") + " ";
+      var removed = removedAt(S.tr[i][0], S.segs);
+      return '<button type="button" class="tr-hit' + (removed ? " removed" : "") + '" data-w="' + i + '"><span class="t">' + fmt(S.tr[i][0]) + "</span><span>" + (from > 0 ? "… " : "") + s.trim() + (to < S.tr.length ? " …" : "") + (removed ? ' <span class="muted">(removed)</span>' : "") + "</span></button>";
+    }).join("");
+    $$(".tr-hit", box).forEach(function (b) {
+      b.addEventListener("click", function () {
+        $$(".tr-hit.on", box).forEach(function (x) { x.classList.remove("on"); });
+        b.classList.add("on");
+        var t = S.tr[+b.dataset.w][0];
+        edP.pause(); edP.setT(Math.max(0, t - 0.3)); revealTime(t);
+      });
+    });
+  }
+  var trTimer = 0;
+  $("#trQ").addEventListener("input", function () { clearTimeout(trTimer); trTimer = setTimeout(searchTr, 150); });
+  $("#trQ").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { var f = $("#trResults .tr-hit"); if (f) f.click(); }
+    if (e.key === "Escape") { $("#trQ").blur(); }
+  });
+
   function loadWave(p) {
     if (!p || !p.waveId || S.waveId === p.waveId) return;
     S.waveId = p.waveId;
@@ -855,6 +911,7 @@
     $("#pushBtn").disabled = !S.demo && !S.dur;
     if (S.waitMsg) setWaiting(S.waitMsg);
     updateUpPill();
+    drawTrNote();
   }
   function P(x) { return (x / S.dur * 100); }
   function popRange() {
@@ -1114,6 +1171,12 @@
     if (mod && (k === "=" || k === "+")) { e.preventDefault(); zoomBy(1.6); return; }
     if (mod && (k === "-" || k === "_")) { e.preventDefault(); zoomBy(1 / 1.6); return; }
     if (mod && k === "0") { e.preventDefault(); setPps(0); return; }
+    if (mod && k === "f") {
+      e.preventDefault();
+      if ($("#panel").hidden) $("#panelBtn").click();
+      setTimeout(function () { $("#trQ").focus(); $("#trQ").select(); }, 30);
+      return;
+    }
     if (mod && (k === "z" || k === "y")) {
       e.preventDefault(); e.stopPropagation();
       if (e.repeat) return;
@@ -1264,7 +1327,9 @@
     var m = S.msg;
     var renderBusy = m.renderRequested && !(m.render && (m.render.done || m.render.failed));
     var previewBusy = (m.original.uploaded || (m.source === "zoom" && !(m.importing && m.importing.failed))) && !(m.preview && (m.preview.proxyId || m.preview.status === "error"));
-    var watching = (S.view === "details" || S.view === "review") ? renderBusy || (m.render && m.render.done && m.status === "finished" && !m.webflow) : S.view === "edit" ? previewBusy : false;
+    var tr = m.preview && m.preview.transcript;
+    var transcriptBusy = m.original.uploaded && !(tr && (tr.status === "done" || tr.status === "error"));
+    var watching = (S.view === "details" || S.view === "review") ? renderBusy || (m.render && m.render.done && m.status === "finished" && !m.webflow) : S.view === "edit" ? previewBusy || transcriptBusy : false;
     if (!watching) return;
     pollTimer = setTimeout(function () {
       if (!S.msg || S.msg.id !== m.id) return;
@@ -1274,6 +1339,7 @@
         mergeView(v);
         if (!S.dur && v.duration) S.dur = v.duration;
         if (v.preview.waveId) loadWave(v.preview);
+        loadTranscript(v.preview.transcript);
         if (!hadProxy && v.preview.proxyId && !S.url) usePreview(v);
         else if (!hadProxy && !S.url && S.view === "edit") usePreview(v);
         updateRender();

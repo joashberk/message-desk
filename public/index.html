@@ -336,6 +336,13 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
 .rv-stage:fullscreen .icon-btn { color: #fff; }
 .rv-stage:-webkit-full-screen { background: #000; padding: 16px 20px; justify-content: center; }
 .rv-stage:-webkit-full-screen .rv-video { flex: 1; min-height: 0; aspect-ratio: auto; border-radius: 0; box-shadow: none; }
+.tr-results { display: flex; flex-direction: column; gap: 2px; max-height: 340px; overflow-y: auto; overscroll-behavior: contain; margin: 0 -8px; }
+.tr-hit { display: flex; gap: 10px; width: 100%; text-align: left; padding: 7px 8px; border: 0; background: transparent; border-radius: 8px; font-size: 13px; line-height: 1.4; color: var(--ink-2); }
+@media (hover: hover) { .tr-hit:hover { background: var(--sunken); } }
+.tr-hit.on { background: var(--blue-soft); }
+.tr-hit .t { flex: none; width: 52px; color: var(--muted); font-size: 12px; padding-top: 1px; font-variant-numeric: tabular-nums; }
+.tr-hit mark { background: var(--blue-soft); color: var(--ink); border-radius: 3px; padding: 0 2px; }
+.tr-hit.removed { opacity: .55; }
 .gbtn { min-height: 44px; display: flex; justify-content: center; margin-top: 6px; }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -484,6 +491,12 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
         </div>
       </div>
       <aside class="panel" id="panel" hidden>
+        <div class="psec" id="trSec">
+          <h3>Search what was said</h3>
+          <input class="input" id="trQ" type="search" placeholder="Type a word or phrase" autocomplete="off" disabled>
+          <p class="fine" id="trNote"></p>
+          <div class="tr-results" id="trResults"></div>
+        </div>
         <div class="psec">
           <h3>Sections</h3>
           <div id="cutList" style="display: flex; flex-direction: column; gap: 2px;"></div>
@@ -514,14 +527,11 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; }
             <kbd>⌘ + / −</kbd><span>Zoom the timeline</span>
             <kbd>⌘ 0</kbd><span>Fit the whole recording</span>
             <kbd>Esc</kbd><span>Clear in and out</span>
+            <kbd>⌘ F</kbd><span>Search what was said</span>
             <kbd>⌘ Z</kbd><span>Undo</span>
             <kbd>⌘ ⇧ Z</kbd><span>Redo (or ⌘ Y)</span>
           </div>
           <p class="fine">Scroll or pinch over the timeline to zoom. Shift-scroll moves sideways.</p>
-        </div>
-        <div class="psec" style="box-shadow: none;">
-          <h3>Coming soon</h3>
-          <p class="fine" style="font-size: 13px;">A transcript and suggested cuts will appear here.</p>
         </div>
       </aside>
     </div>

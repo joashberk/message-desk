@@ -2,7 +2,8 @@ name: Render message
 run-name: Render ${{ inputs.message_id }} ${{ inputs.request_id }}${{ inputs.dry_run == 'true' && ' practice' || '' }}
 
 # Splits the kept parts of the recording into pieces that separate machines compress at the same time,
-# makes the sound alongside, then joins everything and sends it to Vimeo and Drive.
+# makes the sound alongside, then joins everything and sends it to Vimeo and Drive. Pieces pass between
+# machines through the post's private Drive folder (never GitHub's storage) and are deleted once joined.
 
 on:
   workflow_dispatch:
@@ -79,13 +80,6 @@ jobs:
           INFO: ${{ needs.plan.outputs.info }}
           WORK_DIR: ${{ runner.temp }}/md
         run: node worker/render.js "${{ inputs.message_id }}" "${{ inputs.request_id }}"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: piece-${{ matrix.chunk.i }}
-          path: ${{ runner.temp }}/md/piece-*.mp4
-          retention-days: 1
-          compression-level: 0
-          if-no-files-found: error
 
   audio:
     needs: plan
@@ -107,14 +101,6 @@ jobs:
           INFO: ${{ needs.plan.outputs.info }}
           WORK_DIR: ${{ runner.temp }}/md
         run: node worker/render.js "${{ inputs.message_id }}" "${{ inputs.request_id }}"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sound
-          path: |
-            ${{ runner.temp }}/md/final.m4a
-            ${{ runner.temp }}/md/final.mp3
-          retention-days: 1
-          if-no-files-found: error
 
   finish:
     needs: [plan, piece, audio]
@@ -127,16 +113,11 @@ jobs:
           node-version: 22
       - name: Install ffmpeg
         run: command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
-      - uses: actions/download-artifact@v4
-        with:
-          path: ${{ runner.temp }}/md/parts
-          merge-multiple: true
       - name: Join, upload to Vimeo and save to Drive
         env:
           RENDER_MODE: finish
           VIMEO_TOKEN: ${{ secrets.VIMEO_TOKEN }}
           WORK_DIR: ${{ runner.temp }}/md
-          PARTS_DIR: ${{ runner.temp }}/md/parts
         run: node worker/render.js "${{ inputs.message_id }}" "${{ inputs.request_id }}"
 
   failed:

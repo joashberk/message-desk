@@ -1,0 +1,50 @@
+name: Write transcript
+
+on:
+  workflow_dispatch:
+    inputs:
+      message_id:
+        description: Message id
+        required: true
+
+run-name: Transcript ${{ inputs.message_id }}
+
+concurrency:
+  group: transcribe-${{ inputs.message_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  transcribe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Make room for large recordings (in the background)
+        run: |
+          nohup sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost > /dev/null 2>&1 &
+      - name: Keep the speech model between runs
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: whisper-small-en-v1
+      - name: Install the transcriber and ffmpeg
+        run: |
+          pip install --quiet faster-whisper==1.1.1
+          command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+      - name: Write the transcript
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          WORK_DIR: ${{ runner.temp }}/md
+          WHISPER_MODEL: small.en
+        run: node worker/transcribe.js "${{ inputs.message_id }}"

@@ -40,9 +40,9 @@ export async function downloadToFile(fileId, size, dest, onProgress) {
 }
 
 // Uploads a file from disk to Drive (new file, or new content for an existing file so its links stay the same).
-export async function uploadFromFile({ path, parentId, name, mimeType, fileId, onProgress }) {
+export async function uploadFromFile({ path, parentId, name, mimeType, fileId, onProgress, appProperties }) {
   const size = fs.statSync(path).size;
-  let session = await G.startResumable({ parentId, name, mimeType, size, fileId });
+  let session = await G.startResumable({ parentId, name, mimeType, size, fileId, appProperties });
   const CH = 64 * 1024 * 1024;
   const fd = fs.openSync(path, 'r');
   try {
@@ -72,7 +72,7 @@ export async function uploadFromFile({ path, parentId, name, mimeType, fileId, o
       if (++tries > 8) throw new Error('Drive upload failed (' + r.status + ')');
       await sleep(2000 * 2 ** tries);
       const st = await G.uploadStatus(session, size);
-      if (st.expired) { session = await G.startResumable({ parentId, name, mimeType, size, fileId }); pos = 0; }
+      if (st.expired) { session = await G.startResumable({ parentId, name, mimeType, size, fileId, appProperties }); pos = 0; }
       else if (st.done) return st.file;
       else pos = st.offset;
     }

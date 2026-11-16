@@ -45,8 +45,11 @@ function startPrepare(m) {
       m.duration = m.duration || dur;
       const wave = path.join(dir, m.id + '-wave.bin');
       execFileSync('node', ['--input-type=module', '-e', "import('" + new URL('../worker/common.js', import.meta.url).href + "').then((c) => c.makeWaveform(process.argv[1], process.argv[2]))", src, wave]);
-      m.prepare = { status: 'done', pct: 100, waveId: 'w-' + m.id, waveRate: 50, proxyId: 'p-' + m.id, proxySize: fs.statSync(src).size, proxyType: 'video/mp4', thumbsId: 't-' + m.id, thumbs: { n, cols: 10, rows: 5, w: 160, h: 90 }, fps: 30, duration: m.duration };
-      m.files = { ['p-' + m.id]: src, ['t-' + m.id]: thumbs, ['w-' + m.id]: wave };
+      const tr = path.join(dir, m.id + '-transcript.json');
+      const said = 'and so we come to the word today about faith and the deep waters of grace where we learn to trust what God is doing in the season ahead'.split(' ');
+      fs.writeFileSync(tr, JSON.stringify({ words: Array.from({ length: Math.floor(m.duration / 0.45) }, (_, i) => [+(i * 0.45).toFixed(2), +(i * 0.45 + 0.4).toFixed(2), said[i % said.length]]) }));
+      m.prepare = { transcript: { status: 'done', pct: 100, id: 'tr-' + m.id }, status: 'done', pct: 100, waveId: 'w-' + m.id, waveRate: 50, proxyId: 'p-' + m.id, proxySize: fs.statSync(src).size, proxyType: 'video/mp4', thumbsId: 't-' + m.id, thumbs: { n, cols: 10, rows: 5, w: 160, h: 90 }, fps: 30, duration: m.duration };
+      m.files = { ['p-' + m.id]: src, ['t-' + m.id]: thumbs, ['w-' + m.id]: wave, ['tr-' + m.id]: tr };
     } catch (e) { console.error(e.message); m.prepare = { status: 'error', pct: 0 }; }
   }, 1500 / SPEED);
 }

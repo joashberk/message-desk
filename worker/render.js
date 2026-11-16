@@ -126,8 +126,12 @@ async function plan() {
   if (!info.hasAudio) throw new Error('The recording has no sound, so no audio file could be made');
   const chunks = planChunks(m.edit.renderSegs, info.duration, info.fps, { target: 600, max: 10 });
   log('splitting into', chunks.length, 'pieces');
-  // Clear progress markers left by earlier renders
-  if (!dry) for (const k of m.kids) if (k.appProperties && k.appProperties.md === 'piece') G.trashFile(k.id).catch(() => {});
+  // Clear progress markers and parts left by earlier renders
+  for (const k of m.kids) {
+    const md = k.appProperties && k.appProperties.md;
+    if (!dry && md === 'piece') G.trashFile(k.id).catch(() => {});
+    if ((md === 'part') && (!dry || k.appProperties.req === requestId)) G.trashFile(k.id).catch(() => {});
+  }
   Object.assign(state, { pct: 5, pieces: chunks.length, duration: keepRanges(m.edit.renderSegs, info.duration).reduce((t, [a, b]) => t + b - a, 0) });
   await save(true);
   out('chunks', JSON.stringify(chunks.map((segs, i) => ({ i, segs }))));
@@ -147,6 +151,7 @@ async function piece() {
   const outMp4 = path.join(work, 'piece-' + String(i).padStart(3, '0') + '.mp4');
   const { args, kept } = buildRenderArgs({ input: src, outMp4, segs, dur: info.duration, fps: info.fps, hasAudio: false, parts: 'video' });
   await runFfmpeg(args, (t) => { pct = 25 + Math.floor(Math.min(1, t / kept) * 75); mark(); });
+  await savePart(outMp4, 'part-' + String(i).padStart(3, '0') + '.mp4', 'video/mp4');
   pct = 100; await mark(true);
   log('piece', i, 'done');
 }
@@ -162,25 +167,38 @@ async function audio() {
   const kept = keepRanges(m.edit.renderSegs, info.duration).reduce((t, [a, b]) => t + b - a, 0);
   const { args } = buildRenderArgs({ input: src, outAudio: path.join(work, 'final.m4a'), outMp3: path.join(work, 'final.mp3'), segs: m.edit.renderSegs, dur: info.duration, fps: info.fps, parts: 'audio' });
   await runFfmpeg(args, (t) => { pct = 40 + Math.floor(Math.min(1, t / kept) * 60); mark(); });
+  await savePart(path.join(work, 'final.m4a'), 'part-sound.m4a', 'audio/mp4');
+  await savePart(path.join(work, 'final.mp3'), 'part-sound.mp3', 'audio/mpeg');
   pct = 100; await mark(true);
   log('sound done');
 }
 
+// A finished part goes into the post's own Drive folder (private), marked as temporary.
+async function savePart(file, name, mimeType) {
+  await uploadFromFile({ path: file, parentId: m.id, name, mimeType, appProperties: { md: 'part', req: requestId } });
+}
+
 async function finish() {
   await begin(false);
-  const dir = process.env.PARTS_DIR || path.join(work, 'parts');
-  const pieces = fs.readdirSync(dir).filter((f) => /^piece-\d+\.mp4$/.test(f)).sort();
+  const dir = path.join(work, 'parts');
+  fs.mkdirSync(dir, { recursive: true });
+  const parts = (await M.load(id)).kids.filter((k) => k.appProperties && k.appProperties.md === 'part' && k.appProperties.req === requestId);
+  for (const p of parts) await downloadToFile(p.id, +p.size, path.join(dir, p.name), () => {});
+  const removeParts = async () => { for (const p of parts) await G.trashFile(p.id).catch(() => {}); };
+  const pieces = fs.readdirSync(dir).filter((f) => /^part-\d+\.mp4$/.test(f)).sort();
   if (!pieces.length) throw new Error('The compressed pieces are missing');
   fs.writeFileSync(path.join(work, 'list.txt'), pieces.map((f) => "file '" + path.join(dir, f) + "'").join('\n'));
   const outMp4 = path.join(work, 'final.mp4');
-  await ffmpeg(['-y', '-f', 'concat', '-safe', '0', '-i', path.join(work, 'list.txt'), '-i', path.join(dir, 'final.m4a'), '-map', '0:v', '-map', '1:a', '-c', 'copy', '-movflags', '+faststart', outMp4]);
+  await ffmpeg(['-y', '-f', 'concat', '-safe', '0', '-i', path.join(work, 'list.txt'), '-i', path.join(dir, 'part-sound.m4a'), '-map', '0:v', '-map', '1:a', '-c', 'copy', '-movflags', '+faststart', outMp4]);
   log('joined', pieces.length, 'pieces');
   if (dry) {
     const d = (s) => execFileSync('ffprobe', ['-v', 'error', '-select_streams', s, '-show_entries', 'stream=duration,nb_frames,avg_frame_rate', '-of', 'csv=p=0', outMp4], { encoding: 'utf8' }).trim();
     log('practice run finished: final video', Math.round(fs.statSync(outMp4).size / 1e6), 'MB | picture', d('v:0'), '| sound', d('a:0'));
+    await removeParts();
     return;
   }
-  await deliver(outMp4, path.join(dir, 'final.mp3'));
+  await removeParts();
+  await deliver(outMp4, path.join(dir, 'part-sound.mp3'));
   for (const k of (await M.load(id)).kids) if (k.appProperties && k.appProperties.md === 'piece') await G.trashFile(k.id).catch(() => {});
 }
 
@@ -290,6 +308,7 @@ async function tell(post, ok) {
 async function failed() {
   const fresh = await M.load(id).catch(() => null);
   if (!fresh || fresh.edit.renderRequestId !== requestId) return;
+  for (const k of fresh.kids) if (k.appProperties && k.appProperties.md === 'part') await G.trashFile(k.id).catch(() => {});
   const s = { ...(fresh.render || {}), requestId, status: 'error', error: 'One of the render machines stopped' };
   await G.writeJson(fresh.id, 'render.json', s, fresh.ids.render);
   await tell(fresh, false);
