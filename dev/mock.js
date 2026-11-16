@@ -145,6 +145,7 @@ export default async function mock(req, res) {
   if (parts[0] === 'messages') {
     const b = req.method === 'GET' ? {} : await body(req);
     if (!parts[1] && req.method === 'GET') return send(res, 200, { messages: [...msgs.values()].filter((m) => m.status !== 'published').map(view) });
+    if (parts[1] === 'published') return send(res, 200, { posts: [...msgs.values()].filter((m) => m.status === 'published').map((m) => ({ id: m.id, title: N.title(m.d), date: m.d.date, coll: m.d.coll, onSite: m.d.web !== false, liveUrl: m.d.web !== false ? N.liveUrl(m.d) : null, publishedAt: m.publishedAt, vimeoLink: 'https://vimeo.com/0' })) });
     if (!parts[1] && req.method === 'POST') {
       const id = 'msg' + (seq++) + 'abcdefghij';
       const m = { id, file: { ...b.file, ext: N.fileExt(b.file.name) }, duration: b.duration || 0, d: b.d, segs: null, fps: null, notes: [], original: {}, prepare: { status: 'waiting', pct: 0 }, render: null, status: 'editing', webflow: null, filing: null };
@@ -202,9 +203,16 @@ export default async function mock(req, res) {
       file(m); m.webflow = { drafted: true, published: false, liveUrl: null }; m.status = 'finished';
       return send(res, 200, view(m));
     }
+    if (a === 'unpublish') {
+      if (String(b.confirm || '').trim().toLowerCase() !== 'unpublish') return send(res, 400, { error: 'Type unpublish to confirm.' });
+      if (m.status !== 'published') return send(res, 400, { error: "This post isn't published." });
+      m.status = 'finished'; m.webflow = { drafted: true, published: false, liveUrl: null };
+      return send(res, 200, view(m));
+    }
     if (a === 'publish') {
       if (!m.render || !m.render.done) return send(res, 409, { error: 'The video is still being prepared. Publish once it is ready.' });
       m.status = 'published'; m.webflow = { drafted: true, published: true, liveUrl: N.liveUrl(m.d) };
+      m.publishedAt = new Date().toISOString();
       return send(res, 200, view(m));
     }
   }
